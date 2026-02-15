@@ -2,7 +2,7 @@
     "name": "gitea",
     "displayName": "Gitea",
     "description": "Unofficial Gitea Extension for VS Code",
-    "version": "0.1.8",
+    "version": "0.1.9",
     "publisher": "TerenceCarrera",
     "license": "GPL-3.0-only",
     "repository": {
@@ -374,6 +374,18 @@
                     "type": "string",
                     "default": "c:\\Users\\Terence\\source\\repos",
                     "description": "Default starting path for repository operations"
+                },
+                "gitea.showAllReposWhenNoWorkspace": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Show all repositories when none are detected in the current workspace"
+                },
+                "gitea.repoScanDepth": {
+                    "type": "number",
+                    "default": 2,
+                    "description": "Maximum folder depth to scan for git repositories in the workspace",
+                    "minimum": 0,
+                    "maximum": 6
                 },
                 "gitea.profiles": {
                     "type": "object",

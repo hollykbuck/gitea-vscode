@@ -208,7 +208,9 @@ class NotificationManager {
                 'Dismiss'
             ).then(selection => {
                 if (selection === 'View in VS Code') {
-                    vscode.commands.executeCommand('gitea.viewIssueDetails', issueItem);
+                    vscode.commands.executeCommand('workbench.view.extension.gitea-explorer')
+                        .then(() => vscode.commands.executeCommand('gitea.issues.focus'))
+                        .catch(err => console.error('Failed to focus issues view:', err));
                 } else if (selection === 'Open in Browser') {
                     vscode.commands.executeCommand('gitea.openIssueInBrowser', issueItem);
                 }
@@ -243,7 +245,9 @@ class NotificationManager {
                 'Dismiss'
             ).then(selection => {
                 if (selection === 'View in VS Code') {
-                    vscode.commands.executeCommand('gitea.viewPullRequestDetails', prItem);
+                    vscode.commands.executeCommand('workbench.view.extension.gitea-explorer')
+                        .then(() => vscode.commands.executeCommand('gitea.pullRequests.focus'))
+                        .catch(err => console.error('Failed to focus pull requests view:', err));
                 } else if (selection === 'Open in Browser') {
                     vscode.commands.executeCommand('gitea.openPullRequestInBrowser', prItem);
                 }
