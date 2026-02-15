@@ -1,4 +1,103 @@
 const vscode = require('vscode');
+const path = require('path');
+const fs = require('fs');
+
+let hasPromptedNoWorkspaceRepos = false;
+
+function getRepoScanDepth() {
+    const config = vscode.workspace.getConfiguration('gitea');
+    const depth = Number(config.get('repoScanDepth', 2));
+    if (Number.isFinite(depth) && depth >= 0) return Math.floor(depth);
+    return 2;
+}
+
+function shouldShowAllReposWhenNoWorkspace() {
+    const config = vscode.workspace.getConfiguration('gitea');
+    return !!config.get('showAllReposWhenNoWorkspace', false);
+}
+
+function resolveGitConfigPath(repoPath) {
+    const gitEntryPath = path.join(repoPath, '.git');
+    if (!fs.existsSync(gitEntryPath)) return null;
+
+    try {
+        const stat = fs.statSync(gitEntryPath);
+        if (stat.isDirectory()) {
+            return path.join(gitEntryPath, 'config');
+        }
+
+        const gitFile = fs.readFileSync(gitEntryPath, 'utf8');
+        const match = gitFile.match(/gitdir:\s*(.+)\s*$/i);
+        if (!match || !match[1]) return null;
+        const gitDir = match[1].trim();
+        const resolvedGitDir = path.isAbsolute(gitDir) ? gitDir : path.resolve(repoPath, gitDir);
+        return path.join(resolvedGitDir, 'config');
+    } catch (error) {
+        console.error(`Failed to resolve git config path for ${repoPath}:`, error);
+        return null;
+    }
+}
+
+function findGitReposInDir(dirPath, depth) {
+    const foundRepos = [];
+    if (depth < 0) return foundRepos;
+    try {
+        const gitPath = path.join(dirPath, '.git');
+        if (fs.existsSync(gitPath)) foundRepos.push(dirPath);
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        for (const entry of entries) {
+            if (entry.isDirectory() && !entry.name.startsWith('.')) {
+                const subDirPath = path.join(dirPath, entry.name);
+                foundRepos.push(...findGitReposInDir(subDirPath, depth - 1));
+            }
+        }
+    } catch (err) {
+        console.error(`Failed to scan directory ${dirPath}:`, err);
+    }
+    return foundRepos;
+}
+
+async function promptForWorkspaceRepos(allRepos) {
+    if (hasPromptedNoWorkspaceRepos) return null;
+    hasPromptedNoWorkspaceRepos = true;
+
+    const action = await vscode.window.showInformationMessage(
+        'No Gitea repositories were found in the current workspace.',
+        'Open Folder',
+        'Clone Repository',
+        'Show All Repos'
+    );
+
+    if (action === 'Open Folder') {
+        await vscode.commands.executeCommand('vscode.openFolder');
+        return null;
+    }
+
+    if (action === 'Clone Repository') {
+        const repoOptions = (allRepos || []).map(repo => ({
+            label: repo.full_name || repo.name,
+            description: repo.description || '',
+            value: repo
+        }));
+
+        const selected = await vscode.window.showQuickPick(repoOptions, {
+            placeHolder: 'Select a repository to clone'
+        });
+
+        if (selected) {
+            await vscode.commands.executeCommand('gitea.openRepository', { repository: selected.value });
+        }
+        return null;
+    }
+
+    if (action === 'Show All Repos') {
+        const config = vscode.workspace.getConfiguration('gitea');
+        await config.update('showAllReposWhenNoWorkspace', true, vscode.ConfigurationTarget.Global);
+        return 'showAll';
+    }
+
+    return null;
+}
 
 class RepositoryTreeItem extends vscode.TreeItem {
     constructor(repository, collapsibleState) {
@@ -92,7 +191,19 @@ class RepositoryProvider {
                     return (this.repositories || []).map(repo => new RepositoryTreeItem(repo, vscode.TreeItemCollapsibleState.None));
                 }
                 const repos = await this.auth.makeRequest('/api/v1/user/repos');
-                this.repositories = this.filterRepositoriesByWorkspace(repos || []);
+                const allRepos = repos || [];
+                let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
+
+                if (workspaceRepos.length === 0) {
+                    if (shouldShowAllReposWhenNoWorkspace()) {
+                        workspaceRepos = allRepos;
+                    } else {
+                        const action = await promptForWorkspaceRepos(allRepos);
+                        if (action === 'showAll') workspaceRepos = allRepos;
+                    }
+                }
+
+                this.repositories = workspaceRepos;
                 this.mode = 'all';
                 return this.repositories.map(repo => new RepositoryTreeItem(repo, vscode.TreeItemCollapsibleState.None));
             }
@@ -115,36 +226,19 @@ class RepositoryProvider {
     resetSearch() { this.mode = 'all'; this.lastQuery = ''; this.repositories = []; }
 
     filterRepositoriesByWorkspace(allRepos) {
-        const fs = require('fs');
-        const path = require('path');
         const workspaceFolders = vscode.workspace.workspaceFolders || [];
         if (workspaceFolders.length === 0) return [];
-        const findGitReposInDir = (dirPath, depth = 2) => {
-            const foundRepos = [];
-            if (depth < 0) return foundRepos;
-            try {
-                const gitPath = path.join(dirPath, '.git');
-                if (fs.existsSync(gitPath)) foundRepos.push(dirPath);
-                const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-                for (const entry of entries) {
-                    if (entry.isDirectory() && !entry.name.startsWith('.')) {
-                        const subDirPath = path.join(dirPath, entry.name);
-                        foundRepos.push(...findGitReposInDir(subDirPath, depth - 1));
-                    }
-                }
-            } catch (err) { console.error(`Failed to scan directory ${dirPath}:`, err); }
-            return foundRepos;
-        };
+        const scanDepth = getRepoScanDepth();
         const loadedRepos = [];
         for (const repo of allRepos) {
             for (const folder of workspaceFolders) {
                 const folderPath = folder.uri.fsPath;
-                const gitRepoPaths = findGitReposInDir(folderPath);
+                const gitRepoPaths = findGitReposInDir(folderPath, scanDepth);
                 for (const repoPath of gitRepoPaths) {
-                    const gitConfigPath = path.join(repoPath, '.git', 'config');
-                    if (require('fs').existsSync(gitConfigPath)) {
+                    const gitConfigPath = resolveGitConfigPath(repoPath);
+                    if (gitConfigPath && fs.existsSync(gitConfigPath)) {
                         try {
-                            const gitConfig = require('fs').readFileSync(gitConfigPath, 'utf8');
+                            const gitConfig = fs.readFileSync(gitConfigPath, 'utf8');
                             const cloneUrlNormalized = repo.clone_url.toLowerCase();
                             const htmlUrlNormalized = repo.html_url.toLowerCase();
                             if (gitConfig.toLowerCase().includes(cloneUrlNormalized) ||
@@ -182,7 +276,17 @@ class IssueProvider {
             if (!element) {
                 if (this.mode === 'search') return this.issues;
                 const repos = await this.auth.makeRequest('/api/v1/user/repos');
-                const workspaceRepos = this.filterRepositoriesByWorkspace(repos || []);
+                const allRepos = repos || [];
+                let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
+
+                if (workspaceRepos.length === 0) {
+                    if (shouldShowAllReposWhenNoWorkspace()) {
+                        workspaceRepos = allRepos;
+                    } else {
+                        const action = await promptForWorkspaceRepos(allRepos);
+                        if (action === 'showAll') workspaceRepos = allRepos;
+                    }
+                }
                 const openByRepo = {};
                 const closedByRepo = {};
                 for (const repo of workspaceRepos) {
@@ -238,7 +342,17 @@ class IssueProvider {
     async searchIssues(query) {
         try {
             const repos = await this.auth.makeRequest('/api/v1/user/repos');
-            const workspaceRepos = this.filterRepositoriesByWorkspace(repos || []);
+            const allRepos = repos || [];
+            let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
+
+            if (workspaceRepos.length === 0) {
+                if (shouldShowAllReposWhenNoWorkspace()) {
+                    workspaceRepos = allRepos;
+                } else {
+                    const action = await promptForWorkspaceRepos(allRepos);
+                    if (action === 'showAll') workspaceRepos = allRepos;
+                }
+            }
             const allIssues = [];
             for (const repo of workspaceRepos) {
                 try {
@@ -256,36 +370,19 @@ class IssueProvider {
     resetSearch() { this.mode = 'all'; this.lastQuery = ''; this.issues = { openByRepo: {}, closedByRepo: {} }; }
 
     filterRepositoriesByWorkspace(allRepos) {
-        const fs = require('fs');
-        const path = require('path');
         const workspaceFolders = vscode.workspace.workspaceFolders || [];
         if (workspaceFolders.length === 0) return [];
-        const findGitReposInDir = (dirPath, depth = 2) => {
-            const foundRepos = [];
-            if (depth < 0) return foundRepos;
-            try {
-                const gitPath = path.join(dirPath, '.git');
-                if (fs.existsSync(gitPath)) foundRepos.push(dirPath);
-                const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-                for (const entry of entries) {
-                    if (entry.isDirectory() && !entry.name.startsWith('.')) {
-                        const subDirPath = path.join(dirPath, entry.name);
-                        foundRepos.push(...findGitReposInDir(subDirPath, depth - 1));
-                    }
-                }
-            } catch (err) { console.error(`Failed to scan directory ${dirPath}:`, err); }
-            return foundRepos;
-        };
+        const scanDepth = getRepoScanDepth();
         const loadedRepos = [];
         for (const repo of allRepos) {
             for (const folder of workspaceFolders) {
                 const folderPath = folder.uri.fsPath;
-                const gitRepoPaths = findGitReposInDir(folderPath);
+                const gitRepoPaths = findGitReposInDir(folderPath, scanDepth);
                 for (const repoPath of gitRepoPaths) {
-                    const gitConfigPath = path.join(repoPath, '.git', 'config');
-                    if (require('fs').existsSync(gitConfigPath)) {
+                    const gitConfigPath = resolveGitConfigPath(repoPath);
+                    if (gitConfigPath && fs.existsSync(gitConfigPath)) {
                         try {
-                            const gitConfig = require('fs').readFileSync(gitConfigPath, 'utf8');
+                            const gitConfig = fs.readFileSync(gitConfigPath, 'utf8');
                             const cloneUrlNormalized = repo.clone_url.toLowerCase();
                             const htmlUrlNormalized = repo.html_url.toLowerCase();
                             if (gitConfig.toLowerCase().includes(cloneUrlNormalized) ||
@@ -323,7 +420,17 @@ class PullRequestProvider {
             if (!element) {
                 if (this.mode === 'search') return this.pullRequests;
                 const repos = await this.auth.makeRequest('/api/v1/user/repos');
-                const workspaceRepos = this.filterRepositoriesByWorkspace(repos || []);
+                const allRepos = repos || [];
+                let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
+
+                if (workspaceRepos.length === 0) {
+                    if (shouldShowAllReposWhenNoWorkspace()) {
+                        workspaceRepos = allRepos;
+                    } else {
+                        const action = await promptForWorkspaceRepos(allRepos);
+                        if (action === 'showAll') workspaceRepos = allRepos;
+                    }
+                }
                 const openByRepo = {};
                 const closedByRepo = {};
                 const wipByRepo = {};
@@ -394,7 +501,17 @@ class PullRequestProvider {
     async searchPullRequests(query) {
         try {
             const repos = await this.auth.makeRequest('/api/v1/user/repos');
-            const workspaceRepos = this.filterRepositoriesByWorkspace(repos || []);
+            const allRepos = repos || [];
+            let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
+
+            if (workspaceRepos.length === 0) {
+                if (shouldShowAllReposWhenNoWorkspace()) {
+                    workspaceRepos = allRepos;
+                } else {
+                    const action = await promptForWorkspaceRepos(allRepos);
+                    if (action === 'showAll') workspaceRepos = allRepos;
+                }
+            }
             const allPRs = [];
             for (const repo of workspaceRepos) {
                 try {
@@ -412,36 +529,19 @@ class PullRequestProvider {
     resetSearch() { this.mode = 'all'; this.lastQuery = ''; this.pullRequests = { openByRepo: {}, closedByRepo: {}, wipByRepo: {} }; }
 
     filterRepositoriesByWorkspace(allRepos) {
-        const fs = require('fs');
-        const path = require('path');
         const workspaceFolders = vscode.workspace.workspaceFolders || [];
         if (workspaceFolders.length === 0) return [];
-        const findGitReposInDir = (dirPath, depth = 2) => {
-            const foundRepos = [];
-            if (depth < 0) return foundRepos;
-            try {
-                const gitPath = path.join(dirPath, '.git');
-                if (fs.existsSync(gitPath)) foundRepos.push(dirPath);
-                const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-                for (const entry of entries) {
-                    if (entry.isDirectory() && !entry.name.startsWith('.')) {
-                        const subDirPath = path.join(dirPath, entry.name);
-                        foundRepos.push(...findGitReposInDir(subDirPath, depth - 1));
-                    }
-                }
-            } catch (err) { console.error(`Failed to scan directory ${dirPath}:`, err); }
-            return foundRepos;
-        };
+        const scanDepth = getRepoScanDepth();
         const loadedRepos = [];
         for (const repo of allRepos) {
             for (const folder of workspaceFolders) {
                 const folderPath = folder.uri.fsPath;
-                const gitRepoPaths = findGitReposInDir(folderPath);
+                const gitRepoPaths = findGitReposInDir(folderPath, scanDepth);
                 for (const repoPath of gitRepoPaths) {
-                    const gitConfigPath = path.join(repoPath, '.git', 'config');
-                    if (require('fs').existsSync(gitConfigPath)) {
+                    const gitConfigPath = resolveGitConfigPath(repoPath);
+                    if (gitConfigPath && fs.existsSync(gitConfigPath)) {
                         try {
-                            const gitConfig = require('fs').readFileSync(gitConfigPath, 'utf8');
+                            const gitConfig = fs.readFileSync(gitConfigPath, 'utf8');
                             const cloneUrlNormalized = repo.clone_url.toLowerCase();
                             const htmlUrlNormalized = repo.html_url.toLowerCase();
                             if (gitConfig.toLowerCase().includes(cloneUrlNormalized) ||

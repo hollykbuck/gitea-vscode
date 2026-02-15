@@ -51,6 +51,54 @@ async function activate(context) {
             pullRequestProvider.refresh();
         }, 1000);
 
+        let hasPromptedNoWorkspaceRepos = false;
+        const getShowAllReposWhenNoWorkspace = () => {
+            const config = vscode.workspace.getConfiguration('gitea');
+            return !!config.get('showAllReposWhenNoWorkspace', false);
+        };
+
+        const promptNoWorkspaceRepos = async (allRepos) => {
+            if (hasPromptedNoWorkspaceRepos) return null;
+            hasPromptedNoWorkspaceRepos = true;
+
+            const action = await vscode.window.showInformationMessage(
+                'No Gitea repositories were found in the current workspace.',
+                'Open Folder',
+                'Clone Repository',
+                'Show All Repos'
+            );
+
+            if (action === 'Open Folder') {
+                await vscode.commands.executeCommand('vscode.openFolder');
+                return 'openFolder';
+            }
+
+            if (action === 'Clone Repository') {
+                const repoOptions = (allRepos || []).map(repo => ({
+                    label: repo.full_name || repo.name,
+                    description: repo.description || '',
+                    value: repo
+                }));
+
+                const selected = await vscode.window.showQuickPick(repoOptions, {
+                    placeHolder: 'Select a repository to clone'
+                });
+
+                if (selected) {
+                    await vscode.commands.executeCommand('gitea.openRepository', { repository: selected.value });
+                }
+                return 'clone';
+            }
+
+            if (action === 'Show All Repos') {
+                const config = vscode.workspace.getConfiguration('gitea');
+                await config.update('showAllReposWhenNoWorkspace', true, vscode.ConfigurationTarget.Global);
+                return 'showAll';
+            }
+
+            return null;
+        };
+
         // Create status bar item to show current Gitea account
         const giteaStatusBar = vscode.window.createStatusBarItem(
             vscode.StatusBarAlignment.Left,
@@ -322,10 +370,20 @@ async function activate(context) {
 
         try {
             const repos = await auth.makeRequest('/api/v1/user/repos');
-            const workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(repos || []);
+            const allRepos = repos || [];
+            let workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(allRepos);
 
             if (workspaceRepos.length === 0) {
-                vscode.window.showWarningMessage('No repositories found in workspace.');
+                if (getShowAllReposWhenNoWorkspace()) {
+                    workspaceRepos = allRepos;
+                } else {
+                    const action = await promptNoWorkspaceRepos(allRepos);
+                    if (action === 'showAll') workspaceRepos = allRepos;
+                }
+            }
+
+            if (workspaceRepos.length === 0) {
+                vscode.window.showWarningMessage('No repositories available for this workspace.');
                 return;
             }
 
@@ -351,12 +409,22 @@ async function activate(context) {
             try {
                 console.log('[DEBUG] Fetching repositories...');
                 const repos = await auth.makeRequest('/api/v1/user/repos');
-                const workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(repos || []);
+                const allRepos = repos || [];
+                let workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(allRepos);
 
                 console.log(`[DEBUG] Found ${workspaceRepos.length} workspace repositories`);
 
                 if (workspaceRepos.length === 0) {
-                    vscode.window.showWarningMessage('No repositories found in workspace.');
+                    if (getShowAllReposWhenNoWorkspace()) {
+                        workspaceRepos = allRepos;
+                    } else {
+                        const action = await promptNoWorkspaceRepos(allRepos);
+                        if (action === 'showAll') workspaceRepos = allRepos;
+                    }
+                }
+
+                if (workspaceRepos.length === 0) {
+                    vscode.window.showWarningMessage('No repositories available for this workspace.');
                     return;
                 }
 
@@ -501,10 +569,20 @@ async function activate(context) {
 
         try {
             const repos = await auth.makeRequest('/api/v1/user/repos');
-            const workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(repos || []);
+            const allRepos = repos || [];
+            let workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(allRepos);
 
             if (workspaceRepos.length === 0) {
-                vscode.window.showWarningMessage('No repositories found in workspace.');
+                if (getShowAllReposWhenNoWorkspace()) {
+                    workspaceRepos = allRepos;
+                } else {
+                    const action = await promptNoWorkspaceRepos(allRepos);
+                    if (action === 'showAll') workspaceRepos = allRepos;
+                }
+            }
+
+            if (workspaceRepos.length === 0) {
+                vscode.window.showWarningMessage('No repositories available for this workspace.');
                 return;
             }
 

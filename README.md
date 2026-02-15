@@ -45,6 +45,7 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 #### Repository Management
 
 - **Repositories View**: Lists only repositories present in your workspace (detected via local Git remotes)
+- **Workspace Detection Details**: See [Workspace Repository Detection](docs/WORKSPACE_REPOS.md) for matching rules, scan depth, and fallbacks
 - **Create Repository**: Create new repositories directly from VS Code
 - **Clone and Open**: Clone a remote repo and open it in a new window if not already present
 - **Search Repositories**: Quick search across your Gitea repositories
@@ -53,7 +54,7 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 #### Notifications & Alerts
 
 - **Notifications**: Optional polling to surface repository activity inside VS Code
-- **Notification Alerts**: Quick actions to open issues/PRs in VS Code, open in browser, or copy commit SHAs directly from toasts
+- **Notification Alerts**: Quick actions to focus Issues/PRs views in VS Code, open in browser, or copy commit SHAs directly from toasts
 - **Performance-aware**: Caches read-only API responses, throttles refresh bursts, and defers notification polling to reduce startup cost and API load
 
 #### Additional Features
@@ -81,6 +82,8 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 
 - WIP detection uses `draft` flag or common title prefixes (wip, [wip], work in progress, draft).
 - Searches return flat lists for quick navigation; clear search to return to grouped view.
+- If no workspace repositories are detected, the extension can prompt to open a folder, clone a repo, or show all repos.
+- Worktree and submodule `.git` files are supported when matching repositories.
 
 ### Commands
 
@@ -109,6 +112,8 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 - `gitea.enableNotifications`: Enable notifications for repository activities.
 - `gitea.notificationPollInterval`: Poll interval for notifications in ms (minimum 30000).
 - `gitea.defaultRepoStartingPath`: Default local path for cloning new repositories.
+- `gitea.showAllReposWhenNoWorkspace`: Show all repositories when none are detected in the current workspace.
+- `gitea.repoScanDepth`: Maximum folder depth to scan for git repositories in the workspace.
 - `gitea.profiles`: Configure multiple Gitea profiles with instance URL, token, and alias.
 - `gitea.activeProfile`: Set the active profile by its alias/name.
 
