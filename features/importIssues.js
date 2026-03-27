@@ -146,7 +146,6 @@ async function fetchAllIssues(auth, owner, repo, pageSize = 50) {
             }
         }
 
-        console.log(`[DEBUG] Fetched ${allIssues.length} existing issues for duplicate detection`);
         return allIssues;
     } catch (error) {
         console.error('Error fetching all issues:', error);
@@ -218,30 +217,47 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
         duplicateDetectionFailed: false
     };
 
-    // Fetch available labels for label name -> ID mapping
+    // Pre-fetch labels, milestones, and collaborators in parallel
     let labelMap = {};
-    try {
-        const labels = await auth.makeRequest(`/api/v1/repos/${owner}/${repo}/labels`);
-        if (Array.isArray(labels)) {
-            labelMap = {};
-            labels.forEach(label => {
-                labelMap[label.name.toLowerCase()] = label.id;
-            });
-        }
-    } catch (error) {
-        console.warn('Failed to fetch labels:', error);
-        // Continue without label mapping
+    let milestoneMap = {};
+    let validAssignees = null; // null means validation disabled (fetch failed)
+
+    const [labelsResult, milestonesResult, collaboratorsResult] = await Promise.allSettled([
+        auth.makeRequest(`/api/v1/repos/${owner}/${repo}/labels`),
+        auth.makeRequest(`/api/v1/repos/${owner}/${repo}/milestones?limit=50`),
+        auth.makeRequest(`/api/v1/repos/${owner}/${repo}/collaborators`)
+    ]);
+
+    if (labelsResult.status === 'fulfilled' && Array.isArray(labelsResult.value)) {
+        labelsResult.value.forEach(label => {
+            labelMap[label.name.toLowerCase()] = label.id;
+        });
+    } else {
+        console.warn('Failed to fetch labels:', labelsResult.reason);
+    }
+
+    if (milestonesResult.status === 'fulfilled' && Array.isArray(milestonesResult.value)) {
+        milestonesResult.value.forEach(m => {
+            milestoneMap[m.title.toLowerCase()] = m.id;
+        });
+    } else {
+        console.warn('Failed to fetch milestones:', milestonesResult.reason);
+    }
+
+    if (collaboratorsResult.status === 'fulfilled' && Array.isArray(collaboratorsResult.value)) {
+        validAssignees = new Set(collaboratorsResult.value.map(c => c.login));
+    } else {
+        console.warn('Failed to fetch collaborators — assignee validation skipped:', collaboratorsResult.reason);
     }
 
     // Pre-fetch all existing issues for duplicate detection (optimization)
     let existingIssuesCache = [];
     if (options.checkDuplicates) {
-        console.log('[DEBUG] Pre-fetching all existing issues for duplicate detection...');
         try {
             existingIssuesCache = await fetchAllIssues(auth, owner, repo);
         } catch (error) {
             // Duplicate detection failed - log error and mark as failed
-            console.error('[ERROR] Duplicate detection failed:', error.message);
+            console.error('Duplicate detection failed:', error.message);
             results.duplicateDetectionFailed = true;
             // Continue with import but without duplicate detection
         }
@@ -286,10 +302,17 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
 
             // Add optional fields if provided
             if (issue.assignee && options.allowAssignee) {
-                requestBody.assignee = issue.assignee;
+                // Skip invalid assignees when we have a collaborator list
+                if (validAssignees === null || validAssignees.has(issue.assignee)) {
+                    requestBody.assignee = issue.assignee;
+                }
             }
             if (issue.milestone && options.allowMilestone) {
-                requestBody.milestone = issue.milestone;
+                // Map milestone title to ID; skip if title not found
+                const milestoneId = milestoneMap[issue.milestone.toLowerCase()];
+                if (milestoneId) {
+                    requestBody.milestone = milestoneId;
+                }
             }
             if (issue.dueDate && options.allowDueDate) {
                 requestBody.due_date = issue.dueDate;
@@ -300,10 +323,23 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
                 body: requestBody
             });
 
+            // Close the issue if the source state was 'closed'
+            if (issue.state === 'closed') {
+                try {
+                    await auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${result.number}`, {
+                        method: 'PATCH',
+                        body: { state: 'closed' }
+                    });
+                } catch (closeError) {
+                    console.warn(`Failed to close imported issue #${result.number}:`, closeError);
+                }
+            }
+
             results.successful.push({
                 title: issue.title,
                 number: result.number,
-                url: result.html_url
+                url: result.html_url,
+                state: issue.state || 'open'
             });
         } catch (error) {
             results.failed.push({
@@ -321,8 +357,6 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
  */
 async function showImportIssuesDialog(auth, repositories) {
     try {
-        console.log('[DEBUG] showImportIssuesDialog called with', repositories.length, 'repositories');
-
         // Step 1: Select XLSX file
         const fileUris = await vscode.window.showOpenDialog({
             canSelectMany: false,
@@ -334,7 +368,6 @@ async function showImportIssuesDialog(auth, repositories) {
         });
 
         if (!fileUris || fileUris.length === 0) {
-            console.log('[DEBUG] User cancelled file selection');
             return; // User cancelled
         }
 
@@ -640,21 +673,71 @@ function showImportResults(results) {
 
     const message = [successMsg, failMsg, skipMsg, warningMsg].filter(m => m).join('\n');
 
+    const buttons = [];
+    if (successful.length > 0) buttons.push('View Created Issues');
+    if (failed.length > 0) buttons.push('View Failures');
+    if (duplicates.length > 0) buttons.push('View Duplicates');
+
     if (failed.length > 0 || duplicates.length > 0 || duplicateDetectionFailed) {
-        const buttons = [];
-        if (failed.length > 0) buttons.push('View Failures');
-        if (duplicates.length > 0) buttons.push('View Duplicates');
-        
         vscode.window.showWarningMessage(`Import completed!\n\n${message}`, ...buttons).then(choice => {
-            if (choice === 'View Failures') {
+            if (choice === 'View Created Issues') {
+                showCreatedIssues(successful);
+            } else if (choice === 'View Failures') {
                 showFailureDetails(failed);
             } else if (choice === 'View Duplicates') {
                 showDuplicateDetails(duplicates);
             }
         });
-    } else {
-        vscode.window.showInformationMessage(`All ${successful.length} issues imported successfully!`);
+    } else if (successful.length > 0) {
+        vscode.window.showInformationMessage(`All ${successful.length} issues imported successfully!`, 'View Created Issues').then(choice => {
+            if (choice === 'View Created Issues') {
+                showCreatedIssues(successful);
+            }
+        });
     }
+}
+
+/**
+ * Show created issues with clickable links
+ */
+function showCreatedIssues(successful) {
+    const panel = vscode.window.createWebviewPanel(
+        'giteaCreatedIssues',
+        'Created Issues',
+        vscode.ViewColumn.One,
+        { enableScripts: false }
+    );
+
+    const rows = successful.map(issue => `
+        <tr>
+            <td><a href="${escapeHtml(issue.url)}">#${issue.number}</a></td>
+            <td>${escapeHtml(issue.title)}</td>
+            <td>${issue.state === 'closed' ? '<span style="color:#8957e5;">Closed</span>' : '<span style="color:#3fb950;">Open</span>'}</td>
+        </tr>
+    `).join('');
+
+    panel.webview.html = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background-color: var(--vscode-editor-background); padding: 20px; }
+        h2 { margin-top: 0; border-bottom: 1px solid var(--vscode-input-border); padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid var(--vscode-input-border); padding: 8px 10px; text-align: left; }
+        th { font-weight: 600; }
+        a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <h2>Created Issues (${successful.length})</h2>
+    <table>
+        <thead><tr><th>#</th><th>Title</th><th>State</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>
+</body>
+</html>`;
 }
 
 /**

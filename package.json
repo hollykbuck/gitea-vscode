@@ -2,7 +2,7 @@
     "name": "gitea",
     "displayName": "Gitea",
     "description": "Unofficial Gitea Extension for VS Code",
-    "version": "0.1.9",
+    "version": "0.2.0",
     "publisher": "TerenceCarrera",
     "license": "GPL-3.0-only",
     "repository": {
@@ -190,6 +190,11 @@
                 "command": "gitea.removeProfile",
                 "title": "Gitea: Remove Profile",
                 "icon": "$(trash)"
+            },
+            {
+                "command": "gitea.showVersionInfo",
+                "title": "Gitea: Show Version Info",
+                "icon": "$(versions)"
             }
         ],
         "viewsContainers": {
@@ -372,7 +377,7 @@
                 },
                 "gitea.defaultRepoStartingPath": {
                     "type": "string",
-                    "default": "c:\\Users\\Terence\\source\\repos",
+                    "default": "",
                     "description": "Default starting path for repository operations"
                 },
                 "gitea.showAllReposWhenNoWorkspace": {

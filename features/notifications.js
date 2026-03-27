@@ -117,6 +117,13 @@ class NotificationManager {
                 `/api/v1/repos/${repo.owner.login}/${repo.name}/issues?state=open&limit=10`
             );
 
+            if (!Array.isArray(issues)) return [];
+
+            // Evict cache if it grows too large (unbounded growth prevention)
+            if (Object.keys(this.activityCache).length > 300) {
+                this.activityCache = {};
+            }
+
             const cacheKey = `${repoKey}:issues`;
             const previous = this.activityCache[cacheKey] || [];
 
@@ -141,6 +148,8 @@ class NotificationManager {
             const prs = await this.auth.makeRequest(
                 `/api/v1/repos/${repo.owner.login}/${repo.name}/pulls?state=open&limit=10`
             );
+
+            if (!Array.isArray(prs)) return [];
 
             const cacheKey = `${repoKey}:prs`;
             const previous = this.activityCache[cacheKey] || [];
@@ -212,7 +221,8 @@ class NotificationManager {
                         .then(() => vscode.commands.executeCommand('gitea.issues.focus'))
                         .catch(err => console.error('Failed to focus issues view:', err));
                 } else if (selection === 'Open in Browser') {
-                    vscode.commands.executeCommand('gitea.openIssueInBrowser', issueItem);
+                    vscode.commands.executeCommand('gitea.openIssueInBrowser', issueItem)
+                        .then(undefined, err => console.error('Failed to open issue in browser:', err));
                 }
             });
         } catch (error) {
@@ -249,7 +259,8 @@ class NotificationManager {
                         .then(() => vscode.commands.executeCommand('gitea.pullRequests.focus'))
                         .catch(err => console.error('Failed to focus pull requests view:', err));
                 } else if (selection === 'Open in Browser') {
-                    vscode.commands.executeCommand('gitea.openPullRequestInBrowser', prItem);
+                    vscode.commands.executeCommand('gitea.openPullRequestInBrowser', prItem)
+                        .then(undefined, err => console.error('Failed to open PR in browser:', err));
                 }
             });
         } catch (error) {
