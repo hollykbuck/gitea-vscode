@@ -1,7 +1,7 @@
 const vscode = require('vscode');
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 class BranchManager {
     constructor(auth, context) {
@@ -35,18 +35,21 @@ class BranchManager {
     }
 
     /**
-     * Save deletion history to persistent storage
+     * Save deletion history to persistent storage (serialized to prevent race conditions)
      */
-    async saveDeletionHistory() {
-        try {
-            const toStore = {};
-            for (const [repoPath, deletions] of this.deletedBranches.entries()) {
-                toStore[repoPath] = deletions;
+    saveDeletionHistory() {
+        this._savePromise = (this._savePromise || Promise.resolve()).then(async () => {
+            try {
+                const toStore = {};
+                for (const [repoPath, deletions] of this.deletedBranches.entries()) {
+                    toStore[repoPath] = deletions;
+                }
+                await this.context.globalState.update('giteaDeletedBranches', toStore);
+            } catch (error) {
+                console.error('Failed to save deletion history:', error);
             }
-            await this.context.globalState.update('giteaDeletedBranches', toStore);
-        } catch (error) {
-            console.error('Failed to save deletion history:', error);
-        }
+        });
+        return this._savePromise;
     }
 
     /**
@@ -175,7 +178,7 @@ class BranchManager {
      */
     async checkoutBranch(repoPath, branchName) {
         try {
-            execSync(`git checkout ${branchName}`, { cwd: repoPath, stdio: 'pipe' });
+            execFileSync('git', ['checkout', branchName], { cwd: repoPath, stdio: 'pipe' });
             vscode.window.showInformationMessage(`Switched to branch: ${branchName}`);
         } catch (error) {
             throw new Error(`Failed to checkout branch: ${error.message}`);
@@ -192,12 +195,12 @@ class BranchManager {
     async createBranch(repoPath, branchName, baseBranch = null) {
         try {
             if (baseBranch) {
-                execSync(`git checkout -b ${branchName} ${baseBranch}`, {
+                execFileSync('git', ['checkout', '-b', branchName, baseBranch], {
                     cwd: repoPath,
                     stdio: 'pipe'
                 });
             } else {
-                execSync(`git checkout -b ${branchName}`, {
+                execFileSync('git', ['checkout', '-b', branchName], {
                     cwd: repoPath,
                     stdio: 'pipe'
                 });
@@ -358,14 +361,14 @@ class BranchManager {
     async deleteBranch(repoPath, branchName, force = false) {
         try {
             // Get the commit SHA before deleting
-            const commitSha = execSync(`git rev-parse ${branchName}`, {
+            const commitSha = execFileSync('git', ['rev-parse', branchName], {
                 cwd: repoPath,
                 encoding: 'utf8'
             }).trim();
 
             // Delete the branch
             const deleteFlag = force ? '-D' : '-d';
-            execSync(`git branch ${deleteFlag} ${branchName}`, {
+            execFileSync('git', ['branch', deleteFlag, branchName], {
                 cwd: repoPath,
                 stdio: 'pipe'
             });
@@ -410,7 +413,7 @@ class BranchManager {
     async restoreBranch(repoPath, branchName, commitSha) {
         try {
             // Create the branch at the commit SHA
-            execSync(`git branch ${branchName} ${commitSha}`, {
+            execFileSync('git', ['branch', branchName, commitSha], {
                 cwd: repoPath,
                 stdio: 'pipe'
             });
@@ -624,7 +627,12 @@ class BranchManager {
             if (!uris || uris.length === 0) return;
 
             const content = await vscode.workspace.fs.readFile(uris[0]);
-            const importData = JSON.parse(content.toString());
+            let importData;
+            try {
+                importData = JSON.parse(content.toString());
+            } catch {
+                throw new Error('The selected file is not valid JSON');
+            }
 
             if (!importData.version || !importData.deletionHistory) {
                 throw new Error('Invalid deletion history file format');
@@ -690,7 +698,7 @@ class BranchManager {
             const currentBranch = await this.getCurrentBranch(repoPath);
 
             // Get list of files changed in the deleted branch's commit
-            const diffFiles = execSync(`git diff --name-status ${currentBranch} ${commitSha}`, {
+            const diffFiles = execFileSync('git', ['diff', '--name-status', currentBranch, commitSha], {
                 cwd: repoPath,
                 encoding: 'utf8'
             }).trim();

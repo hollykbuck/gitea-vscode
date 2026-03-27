@@ -1,14 +1,17 @@
 // The module 'vscode' contains the VS Code extensibility API
 const vscode = require('vscode');
 const GiteaAuth = require('./features/auth');
-const { RepositoryProvider, IssueProvider, PullRequestProvider } = require('./features/treeProviders');
-const { PullRequestWebviewProvider, IssueWebviewProvider, PullRequestCreationProvider } = require('./features/webviewProviders');
+const { RepositoryProvider, IssueProvider, PullRequestProvider, filterRepositoriesByWorkspace } = require('./features/treeProviders');
+const { PullRequestWebviewProvider, IssueWebviewProvider, PullRequestCreationProvider, VersionInfoProvider } = require('./features/webviewProviders');
 const NotificationManager = require('./features/notifications');
 const BranchManager = require('./features/branches');
 const DeletedBranchesProvider = require('./features/deletedBranchesProvider');
 const StashManager = require('./features/stash');
 const { throttle } = require('./features/performanceOptimizer');
 const { showImportIssuesDialog } = require('./features/importIssues');
+
+// Module-level reference so deactivate() can stop the monitoring timer
+let _notificationManager = null;
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -28,14 +31,14 @@ async function activate(context) {
         const prWebviewProvider = new PullRequestWebviewProvider(auth);
         const issueWebviewProvider = new IssueWebviewProvider(auth);
         const prCreationProvider = new PullRequestCreationProvider(auth);
+        const versionInfoProvider = new VersionInfoProvider(auth, context);
 
         // Lazy-initialize notification manager (defer to reduce startup time)
-        let notificationManager;
         const getNotificationManager = () => {
-            if (!notificationManager) {
-                notificationManager = new NotificationManager(auth);
+            if (!_notificationManager) {
+                _notificationManager = new NotificationManager(auth);
             }
-            return notificationManager;
+            return _notificationManager;
         };
 
         // Initialize branch manager
@@ -371,7 +374,7 @@ async function activate(context) {
         try {
             const repos = await auth.makeRequest('/api/v1/user/repos');
             const allRepos = repos || [];
-            let workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(allRepos);
+            let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
 
             if (workspaceRepos.length === 0) {
                 if (getShowAllReposWhenNoWorkspace()) {
@@ -410,7 +413,7 @@ async function activate(context) {
                 console.log('[DEBUG] Fetching repositories...');
                 const repos = await auth.makeRequest('/api/v1/user/repos');
                 const allRepos = repos || [];
-                let workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(allRepos);
+                let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
 
                 console.log(`[DEBUG] Found ${workspaceRepos.length} workspace repositories`);
 
@@ -570,7 +573,7 @@ async function activate(context) {
         try {
             const repos = await auth.makeRequest('/api/v1/user/repos');
             const allRepos = repos || [];
-            let workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(allRepos);
+            let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
 
             if (workspaceRepos.length === 0) {
                 if (getShowAllReposWhenNoWorkspace()) {
@@ -609,7 +612,7 @@ async function activate(context) {
             } else {
                 // Prompt user to select repository
                 const repos = await auth.makeRequest('/api/v1/user/repos');
-                const workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(repos || []);
+                const workspaceRepos = filterRepositoriesByWorkspace(repos || []);
                 
                 if (workspaceRepos.length === 0) {
                     vscode.window.showWarningMessage('No repositories found in workspace.');
@@ -673,7 +676,7 @@ async function activate(context) {
             try {
                 // Prompt user to select repository
                 const repos = await auth.makeRequest('/api/v1/user/repos');
-                const workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(repos || []);
+                const workspaceRepos = filterRepositoriesByWorkspace(repos || []);
 
                 if (workspaceRepos.length === 0) {
                     vscode.window.showWarningMessage('No repositories found in workspace.');
@@ -740,7 +743,7 @@ async function activate(context) {
             try {
                 // Prompt user to select repository
                 const repos = await auth.makeRequest('/api/v1/user/repos');
-                const workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(repos || []);
+                const workspaceRepos = filterRepositoriesByWorkspace(repos || []);
 
                 if (workspaceRepos.length === 0) {
                     vscode.window.showWarningMessage('No repositories found in workspace.');
@@ -766,7 +769,7 @@ async function activate(context) {
             try {
                 // Prompt user to select repository
                 const repos = await auth.makeRequest('/api/v1/user/repos');
-                const workspaceRepos = repositoryProvider.filterRepositoriesByWorkspace(repos || []);
+                const workspaceRepos = filterRepositoriesByWorkspace(repos || []);
 
                 if (workspaceRepos.length === 0) {
                     vscode.window.showWarningMessage('No repositories found in workspace.');
@@ -1045,10 +1048,21 @@ async function activate(context) {
         }
     });
 
+    // Show Version Info command
+    const showVersionInfoCommand = vscode.commands.registerCommand('gitea.showVersionInfo', async () => {
+        try {
+            await versionInfoProvider.show();
+        } catch (error) {
+            console.error('Failed to show version info:', error);
+            vscode.window.showErrorMessage(`Failed to show version info: ${error.message}`);
+        }
+    });
+
     // Add new commands to subscriptions
     context.subscriptions.push(
         viewIssueDetailsCommand,
-        viewPullRequestDetailsCommand
+        viewPullRequestDetailsCommand,
+        showVersionInfoCommand
     );
 
     // Auto-start notifications if enabled
@@ -1073,8 +1087,8 @@ async function activate(context) {
     context.subscriptions.push(
         new vscode.Disposable(() => {
             try {
-                if (notificationManager) {
-                    notificationManager.stopMonitoring();
+                if (_notificationManager) {
+                    _notificationManager.stopMonitoring();
                 }
             } catch (error) {
                 console.error('Failed to stop notifications:', error);
@@ -1099,7 +1113,12 @@ async function activate(context) {
 }
 
 // This method is called when your extension is deactivated
-function deactivate() { }
+function deactivate() {
+    if (_notificationManager) {
+        _notificationManager.stopMonitoring();
+        _notificationManager = null;
+    }
+}
 
 module.exports = {
     activate,

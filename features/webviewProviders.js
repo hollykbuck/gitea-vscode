@@ -1,6 +1,21 @@
 const vscode = require('vscode');
 const { marked } = require('marked');
 
+// Prevent raw HTML pass-through in markdown rendering (XSS mitigation)
+marked.use({
+    renderer: {
+        html(token) {
+            const text = typeof token === 'string' ? token : (token.text || '');
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+    }
+});
+
 class PullRequestWebviewProvider {
     constructor(auth) {
         this.auth = auth;
@@ -232,577 +247,414 @@ class PullRequestWebviewProvider {
     }
 
     getPullRequestHtml(webview, pr, comments, reviews, files = [], commits = [], conflictingFiles = [], compareInfo = null) {
-        const stateColor = pr.state === 'open' ? '#3fb950' : pr.merged ? '#8957e5' : '#f85149';
-        const stateIcon = pr.state === 'open' ? '●' : pr.merged ? '✓' : '×';
-        const stateText = pr.state === 'open' ? 'Open' : pr.merged ? 'Merged' : 'Closed';
+        const stateOpen = pr.state === 'open';
+        const stateMerged = !!pr.merged;
+        const stateText = stateOpen ? 'Open' : stateMerged ? 'Merged' : 'Closed';
         const behindCount = compareInfo
             ? (Number(compareInfo.behind_by) || Number(compareInfo.behind) || Number(compareInfo.behindBy) || 0)
             : 0;
         const isOutOfDate = behindCount > 0;
 
+        const commentsHtml = (comments && comments.length > 0)
+            ? comments.map(c => {
+                const av = (c.user?.login || '?')[0].toUpperCase();
+                const edited = c.updated_at && c.updated_at !== c.created_at
+                    ? ' <span style="color:var(--fg2);font-weight:400">(edited)</span>' : '';
+                return `
+<div class="gh-tl-item" id="cmt-${c.id}">
+  <div class="avatar">${av}</div>
+  <div class="comment-box">
+    <div class="comment-header">
+      <span class="ch-author">${this.escapeHtml(c.user?.login || 'Unknown')}</span>
+      <span class="ch-meta">${new Date(c.created_at).toLocaleString()}${edited}</span>
+    </div>
+    <div class="comment-body md">${this.renderMarkdown(c.body || '')}</div>
+  </div>
+</div>`;
+            }).join('')
+            : '';
+
+        const commitsHtml = (commits && commits.length > 0)
+            ? commits.map(c => {
+                const sha = c.sha?.substring(0, 7) || 'unknown';
+                const msg = this.escapeHtml(c.commit?.message || c.message || 'No message');
+                const author = this.escapeHtml(c.commit?.author?.name || c.author?.login || 'Unknown');
+                const date = new Date(c.commit?.author?.date || c.created_at).toLocaleString();
+                return `<div class="commit-row"><div class="commit-msg">${msg}</div><div class="commit-meta">${author} · <span class="commit-sha">${sha}</span> · ${date}</div></div>`;
+            }).join('')
+            : '<p style="color:var(--fg2)">No commits.</p>';
+
+        const filesHtml = (files && files.length > 0)
+            ? files.map((file, i) => {
+                const status = this.getFileStatus(file);
+                const icon = this.getFileIcon(status);
+                return `
+<div class="file-item">
+  <div class="file-hdr" onclick="toggleFile(${i})">
+    <span style="margin-right:8px">${icon}</span>
+    <span class="file-name">${this.escapeHtml(file.filename)}</span>
+    <span class="file-stats"><span class="add">+${file.additions || 0}</span> <span class="del">-${file.deletions || 0}</span></span>
+  </div>
+  <div class="file-diff" id="fdiff-${i}" style="display:none">${file.patch ? this.renderDiff(file.patch) : '<span style="color:var(--fg2);padding:8px;display:block">No diff available</span>'}</div>
+</div>`;
+            }).join('')
+            : '<p style="color:var(--fg2)">No files changed.</p>';
+
+        const reviewsHtml = (reviews && reviews.length > 0)
+            ? reviews.map(r => {
+                const state = r.state || 'COMMENTED';
+                const cls = state === 'APPROVED' ? 'rv-approved' : state === 'REQUEST_CHANGES' ? 'rv-changes' : '';
+                const lbl = state === 'APPROVED' ? '✓ Approved' : state === 'REQUEST_CHANGES' ? '✗ Changes requested' : 'Commented';
+                const av = (r.user?.login || '?')[0].toUpperCase();
+                return `
+<div class="gh-tl-item">
+  <div class="avatar">${av}</div>
+  <div class="comment-box ${cls}">
+    <div class="comment-header">
+      <span class="ch-author">${this.escapeHtml(r.user?.login || 'Unknown')}</span>
+      <span class="ch-meta">${lbl} · ${new Date(r.submitted_at).toLocaleString()}</span>
+    </div>
+    ${r.body ? `<div class="comment-body md">${this.renderMarkdown(r.body)}</div>` : ''}
+  </div>
+</div>`;
+            }).join('')
+            : '';
+
+        const labelsHtml = (pr.labels && pr.labels.length > 0)
+            ? pr.labels.map(l => `<span class="label-pill" style="background:#${this.escapeHtml(l.color)};color:${this.getContrastColor(l.color)}">${this.escapeHtml(l.name)}</span>`).join('')
+            : '<span style="color:var(--fg2);font-size:12px">None yet</span>';
+
+        const reviewersHtml = (pr.requested_reviewers && pr.requested_reviewers.length > 0)
+            ? pr.requested_reviewers.map(r => `<div class="sb-item">${this.escapeHtml(r.login)}</div>`).join('')
+            : '<span style="color:var(--fg2);font-size:12px">None</span>';
+
+        const assigneesHtml = (pr.assignees && pr.assignees.length > 0)
+            ? pr.assignees.map(a => `<div class="sb-item">${this.escapeHtml(a.login)}</div>`).join('')
+            : '<span style="color:var(--fg2);font-size:12px">None</span>';
+
+        const svgOpen = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.177 3.073L9.573.677A.25.25 0 0 1 10 .854v4.792a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354z"/><path fill-rule="evenodd" d="M3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25z"/></svg>`;
+        const svgMerged = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372A2.25 2.25 0 1 1 5.45 5.154zM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5zM5 3.25a.75.75 0 1 0 0 .005V3.25z"/></svg>`;
+        const svgClosed = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" d="M3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zm-2.25.75a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25zm7-2.25a.75.75 0 0 1 .75.75v6.586l1.22-1.22a.75.75 0 1 1 1.06 1.06l-2.5 2.5a.75.75 0 0 1-1.06 0l-2.5-2.5a.75.75 0 0 1 1.06-1.06l1.22 1.22V1.25a.75.75 0 0 1 .75-.75z"/></svg>`;
+
+        const mergeBoxHtml = stateOpen
+            ? (pr.mergeable ? `
+<div class="merge-box merge-ok">
+  <div class="merge-box-hdr"><span class="merge-icon">✓</span><span>This branch has no conflicts with the base branch</span></div>
+  <div class="merge-actions">
+    <select id="mergeMethod" class="merge-select">
+      <option value="merge">Create a merge commit</option>
+      <option value="squash">Squash and merge</option>
+      <option value="rebase">Rebase and merge</option>
+    </select>
+    <button class="btn btn-success" onclick="mergePR()">Merge pull request</button>
+    <button class="btn btn-danger" onclick="closePR()">Close PR</button>
+  </div>
+</div>` : `
+<div class="merge-box merge-conflict">
+  <div class="merge-box-hdr"><span class="merge-icon">✗</span><span>This branch has conflicts that must be resolved</span></div>
+  ${conflictingFiles.length > 0
+        ? `<ul class="conflict-files">${conflictingFiles.map(f => `<li>${this.escapeHtml(f.filename)}</li>`).join('')}</ul>`
+        : '<p style="color:var(--fg2);font-size:13px;margin:8px 0 0">Conflicts detected. Check the PR on your server for exact paths.</p>'}
+  <div class="merge-actions" style="margin-top:12px">
+    <button class="btn btn-danger" onclick="closePR()">Close PR</button>
+  </div>
+</div>`)
+            : (stateMerged ? `
+<div class="merge-box merge-merged">
+  <div class="merge-box-hdr"><span class="merge-icon">✓</span><span>Pull request successfully merged and closed</span></div>
+</div>` : `
+<div class="merge-box merge-closed">
+  <div class="merge-box-hdr"><span class="merge-icon">✗</span><span>This pull request is closed</span></div>
+  <div class="merge-actions" style="margin-top:12px"><button class="btn btn-success" onclick="reopenPR()">Reopen PR</button></div>
+</div>`);
+
         return `<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: var(--vscode-font-family);
-            color: var(--vscode-foreground);
-            background-color: var(--vscode-editor-background);
-            padding: 20px;
-            line-height: 1.6;
-        }
-        .header {
-            border-bottom: 1px solid var(--vscode-panel-border);
-            padding-bottom: 16px;
-            margin-bottom: 20px;
-        }
-        .title {
-            font-size: 24px;
-            font-weight: 600;
-            margin: 8px 0;
-        }
-        .state-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 12px;
-            border-radius: 16px;
-            font-size: 14px;
-            font-weight: 500;
-            background-color: ${stateColor};
-            color: white;
-            margin-right: 8px;
-        }
-        .metadata {
-            color: var(--vscode-descriptionForeground);
-            font-size: 14px;
-            margin-top: 8px;
-        }
-        .section {
-            margin: 24px 0;
-        }
-        .section-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-            padding-bottom: 8px;
-        }
-        .description {
-            background-color: var(--vscode-textBlockQuote-background);
-            border-left: 4px solid var(--vscode-textBlockQuote-border);
-            padding: 12px 16px;
-            margin: 12px 0;
-            border-radius: 4px;
-        }
-        .comment {
-            background-color: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 6px;
-            padding: 12px;
-            margin-bottom: 12px;
-            border-radius: 4px;
-        }
-        .comment-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 13px;
-        }
-        .comment-author {
-            font-weight: 600;
-            color: var(--vscode-textLink-foreground);
-        }
-        .comment-date {
-            color: var(--vscode-descriptionForeground);
-        }
-        .comment-body {
-            line-height: 1.5;
-        }
-        .review {
-            border-left: 4px solid #8957e5;
-            background-color: var(--vscode-editor-background);
-            padding: 12px;
-            margin-bottom: 12px;
-            border-radius: 4px;
-        }
-        .review-approved {
-            border-left-color: #3fb950;
-        }
-        .review-changes-requested {
-            border-left-color: #f85149;
-        }
-        textarea {
-            width: 100%;
-            min-height: 100px;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            padding: 8px;
-            font-family: var(--vscode-font-family);
-            font-size: 13px;
-            resize: vertical;
-        }
-        .button-group {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-        }
-        button {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 6px 14px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-        }
-        button:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-        button.secondary {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        button.secondary:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
-        }
-        button.danger {
-            background-color: #f85149;
-            color: white;
-        }
-        button.success {
-            background-color: #3fb950;
-            color: white;
-        }
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin: 16px 0;
-        }
-        .info-item {
-            background-color: var(--vscode-textBlockQuote-background);
-            padding: 12px;
-            border-radius: 4px;
-        }
-        .info-label {
-            font-size: 12px;
-            color: var(--vscode-descriptionForeground);
-            margin-bottom: 4px;
-        }
-        .info-value {
-            font-size: 14px;
-            font-weight: 500;
-        }
-        .actions {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            gap: 8px;
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid var(--vscode-panel-border);
-        }
-        .markdown-body {
-            line-height: 1.7;
-        }
-        .markdown-body > *:first-child {
-            margin-top: 0 !important;
-        }
-        .markdown-body > *:last-child {
-            margin-bottom: 0 !important;
-        }
-        .markdown-body h1, .markdown-body h2, .markdown-body h3, 
-        .markdown-body h4, .markdown-body h5, .markdown-body h6 {
-            margin-top: 20px;
-            margin-bottom: 12px;
-            font-weight: 600;
-            line-height: 1.3;
-        }
-        .markdown-body h1 { font-size: 1.8em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 0.3em; margin-top: 0; }
-        .markdown-body h2 { font-size: 1.4em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 0.3em; }
-        .markdown-body h3 { font-size: 1.2em; }
-        .markdown-body h4 { font-size: 1.1em; }
-        .markdown-body p {
-            margin-top: 0;
-            margin-bottom: 12px;
-        }
-        .markdown-body code {
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 0.85em;
-        }
-        .markdown-body pre {
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 12px;
-            overflow: auto;
-            border-radius: 6px;
-            line-height: 1.5;
-            margin: 12px 0;
-        }
-        .markdown-body pre code {
-            background-color: transparent;
-            padding: 0;
-        }
-        .markdown-body blockquote {
-            border-left: 4px solid var(--vscode-textBlockQuote-border);
-            padding-left: 16px;
-            color: var(--vscode-descriptionForeground);
-            margin: 12px 0;
-        }
-        .markdown-body ul, .markdown-body ol {
-            padding-left: 2em;
-            margin: 8px 0 12px 0;
-        }
-        .markdown-body li {
-            margin-top: 4px;
-        }
-        .markdown-body a {
-            color: var(--vscode-textLink-foreground);
-            text-decoration: none;
-        }
-        .markdown-body a:hover {
-            text-decoration: underline;
-        }
-        .files-container {
-            margin-top: 12px;
-        }
-        .file-item {
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 6px;
-            margin-bottom: 8px;
-            overflow: hidden;
-        }
-        .file-header {
-            display: flex;
-            align-items: center;
-            padding: 8px 12px;
-            background-color: var(--vscode-editor-background);
-            cursor: pointer;
-            user-select: none;
-        }
-        .file-header:hover {
-            background-color: var(--vscode-list-hoverBackground);
-        }
-        .file-icon {
-            margin-right: 8px;
-            font-size: 16px;
-        }
-        .file-name {
-            flex: 1;
-            padding-top: 1px;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 13px;
-        }
-        .file-stats {
-            display: flex;
-            gap: 12px;
-            font-size: 12px;
-            font-family: var(--vscode-editor-font-family);
-        }
-        .file-stats .additions {
-            color: #3fb950;
-        }
-        .file-stats .deletions {
-            color: #f85149;
-        }
-        .file-diff {
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 12px;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 12px;
-            line-height: 1.5;
-            overflow-x: auto;
-        }
-        .diff-line {
-            display: block;
-            white-space: pre;
-            padding: 0 8px;
-        }
-        .diff-line.addition {
-            background-color: rgba(63, 185, 80, 0.15);
-            color: var(--vscode-foreground);
-        }
-        .diff-line.deletion {
-            background-color: rgba(248, 81, 73, 0.15);
-            color: var(--vscode-foreground);
-        }
-        .diff-line.context {
-            color: var(--vscode-descriptionForeground);
-        }
-        .diff-line.header {
-            color: var(--vscode-textLink-foreground);
-            font-weight: 600;
-            background-color: var(--vscode-editor-background);
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root {
+  --open:#2da44e;--merged:#8957e5;--closed:#cf222e;
+  --bd:var(--vscode-panel-border);--bg:var(--vscode-editor-background);--fg:var(--vscode-foreground);--fg2:var(--vscode-descriptionForeground);
+  --inp-bg:var(--vscode-input-background);--inp-fg:var(--vscode-input-foreground);--inp-bd:var(--vscode-input-border,var(--bd));
+  --hdr-bg:var(--vscode-sideBarSectionHeader-background,rgba(128,128,128,.08));
+  --btn-bg:var(--vscode-button-background);--btn-fg:var(--vscode-button-foreground);--btn-hov:var(--vscode-button-hoverBackground);
+  --btn2-bg:var(--vscode-button-secondaryBackground);--btn2-fg:var(--vscode-button-secondaryForeground);
+  --link:var(--vscode-textLink-foreground);--code-bg:var(--vscode-textCodeBlock-background);--av-size:32px;
+}
+*{box-sizing:border-box}
+body{font-family:var(--vscode-font-family);font-size:14px;color:var(--fg);background:var(--bg);margin:0;padding:16px 20px}
+.gh-header{padding-bottom:12px;border-bottom:1px solid var(--bd);margin-bottom:12px}
+.gh-title{font-size:20px;font-weight:600;margin:0 0 6px;line-height:1.3}
+.gh-title-num{color:var(--fg2);font-weight:400}
+.gh-meta{font-size:13px;color:var(--fg2);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500;white-space:nowrap}
+.badge-open{background:var(--open);color:#fff}
+.badge-merged{background:var(--merged);color:#fff}
+.badge-closed{background:var(--closed);color:#fff}
+.badge-draft{background:#6e7681;color:#fff}
+.stats-row{display:flex;gap:16px;font-size:13px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--bd);margin-bottom:12px}
+.stat-item{display:flex;align-items:center;gap:4px;color:var(--fg2)}
+.stat-item b{color:var(--fg)}
+.ood-banner{display:flex;gap:12px;padding:12px;background:rgba(210,153,34,.08);border:1px solid var(--bd);border-left:3px solid #d29922;border-radius:6px;margin-bottom:12px;font-size:13px}
+.ood-icon{color:#d29922;font-size:16px;flex-shrink:0}
+.tabs{display:flex;border-bottom:1px solid var(--bd);margin-bottom:16px}
+.tab{padding:8px 16px;font-size:13px;cursor:pointer;border:none;background:none;color:var(--fg2);border-bottom:2px solid transparent;margin-bottom:-1px;font-family:inherit}
+.tab:hover{color:var(--fg)}
+.tab.active{color:var(--fg);border-bottom-color:var(--link);font-weight:500}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.gh-layout{display:flex;gap:20px;align-items:flex-start}
+.gh-main{flex:1;min-width:0}
+.gh-sidebar{width:210px;flex-shrink:0}
+.gh-tl{position:relative}
+.gh-tl-item{display:flex;gap:12px;position:relative;margin-bottom:16px}
+.gh-tl-item::before{content:'';position:absolute;left:calc(var(--av-size)/2 - 1px);top:var(--av-size);bottom:-16px;width:2px;background:var(--bd)}
+.gh-tl-item:last-child::before{display:none}
+.avatar{width:var(--av-size);height:var(--av-size);border-radius:50%;background:var(--btn-bg);color:var(--btn-fg);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;flex-shrink:0}
+.comment-box{flex:1;min-width:0;border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.comment-header{display:flex;justify-content:space-between;align-items:center;padding:6px 12px;background:var(--hdr-bg);border-bottom:1px solid var(--bd);font-size:12px;flex-wrap:wrap;gap:4px}
+.ch-author{font-weight:600;color:var(--fg)}
+.ch-meta{color:var(--fg2)}
+.comment-body{padding:12px;line-height:1.6}
+.rv-approved .comment-header{background:rgba(45,164,78,.08);border-color:rgba(45,164,78,.3)}
+.rv-changes .comment-header{background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.3)}
+.merge-box{border:1px solid var(--bd);border-radius:6px;padding:14px;margin:8px 0 16px}
+.merge-box-hdr{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:500}
+.merge-icon{font-size:18px;width:24px;text-align:center}
+.merge-ok .merge-icon{color:var(--open)}
+.merge-conflict .merge-icon{color:#f85149}
+.merge-merged .merge-icon{color:var(--merged)}
+.merge-closed .merge-icon{color:var(--closed)}
+.merge-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center}
+.merge-select{background:var(--inp-bg);color:var(--inp-fg);border:1px solid var(--inp-bd);border-radius:6px;padding:5px 8px;font-size:13px;font-family:inherit}
+.conflict-files{margin:8px 0 0;padding-left:20px;color:var(--fg2);font-size:12px;font-family:var(--vscode-editor-font-family)}
+.review-section{border:1px solid var(--bd);border-radius:6px;overflow:hidden;margin-bottom:16px}
+.review-section-hdr{padding:8px 12px;background:var(--hdr-bg);border-bottom:1px solid var(--bd);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--fg2)}
+.review-section-body{padding:12px}
+.review-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.new-box textarea{width:100%;min-height:80px;background:var(--inp-bg);color:var(--inp-fg);border:1px solid var(--inp-bd);border-radius:6px;padding:8px;font-family:inherit;font-size:13px;resize:vertical}
+.new-box-actions{display:flex;justify-content:flex-end;margin-top:8px;gap:8px}
+.commit-row{border:1px solid var(--bd);border-radius:6px;padding:10px 12px;margin-bottom:8px}
+.commit-msg{font-size:13px;font-weight:500;word-break:break-word;margin-bottom:4px}
+.commit-meta{font-size:12px;color:var(--fg2)}
+.commit-sha{font-family:var(--vscode-editor-font-family);background:var(--code-bg);padding:1px 5px;border-radius:4px;font-size:11px}
+.file-item{border:1px solid var(--bd);border-radius:6px;margin-bottom:8px;overflow:hidden}
+.file-hdr{display:flex;align-items:center;padding:8px 12px;background:var(--hdr-bg);cursor:pointer;font-size:13px}
+.file-hdr:hover{background:var(--vscode-list-hoverBackground)}
+.file-name{flex:1;font-family:var(--vscode-editor-font-family);font-size:12px}
+.file-stats{display:flex;gap:8px;font-size:12px;font-family:var(--vscode-editor-font-family)}
+.add{color:#3fb950}.del{color:#f85149}
+.file-diff{background:var(--code-bg);padding:8px;font-family:var(--vscode-editor-font-family);font-size:12px;line-height:1.5;overflow-x:auto}
+.diff-line{display:block;white-space:pre;padding:0 6px}
+.diff-line.addition{background:rgba(63,185,80,.15)}
+.diff-line.deletion{background:rgba(248,81,73,.15)}
+.diff-line.context{color:var(--fg2)}
+.diff-line.header{color:var(--link);font-weight:600}
+.sb-section{border:1px solid var(--bd);border-radius:6px;overflow:hidden;margin-bottom:10px}
+.sb-heading{padding:6px 10px;background:var(--hdr-bg);border-bottom:1px solid var(--bd);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--fg2)}
+.sb-body{padding:8px 10px;font-size:13px}
+.sb-item{margin-bottom:4px}
+.sb-item:last-child{margin-bottom:0}
+.label-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500;margin:2px 2px 2px 0}
+.btn{display:inline-flex;align-items:center;padding:5px 14px;border-radius:6px;border:none;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+.btn-primary{background:var(--btn-bg);color:var(--btn-fg)}.btn-primary:hover{background:var(--btn-hov)}
+.btn-secondary{background:var(--btn2-bg);color:var(--btn2-fg)}
+.btn-success{background:#2da44e;color:#fff}.btn-success:hover{background:#2c974b}
+.btn-danger{background:#f85149;color:#fff}.btn-danger:hover{background:#da3633}
+.md{line-height:1.7}
+.md>*:first-child{margin-top:0!important}.md>*:last-child{margin-bottom:0!important}
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{font-weight:600;line-height:1.3;margin:16px 0 8px}
+.md h1{font-size:1.6em;border-bottom:1px solid var(--bd);padding-bottom:.3em}
+.md h2{font-size:1.3em;border-bottom:1px solid var(--bd);padding-bottom:.3em}
+.md h3{font-size:1.1em}
+.md p{margin:0 0 12px}
+.md code{background:var(--code-bg);padding:.2em .4em;border-radius:3px;font-family:var(--vscode-editor-font-family);font-size:.85em}
+.md pre{background:var(--code-bg);padding:12px;border-radius:6px;overflow:auto;margin:12px 0}
+.md pre code{background:none;padding:0}
+.md blockquote{border-left:3px solid var(--bd);padding-left:14px;color:var(--fg2);margin:12px 0}
+.md ul,.md ol{padding-left:2em;margin:6px 0 12px}
+.md a{color:var(--link);text-decoration:none}.md a:hover{text-decoration:underline}
+.md img{max-width:100%}
+.md table{border-collapse:collapse;margin:12px 0;font-size:13px;width:100%}
+.md th,.md td{border:1px solid var(--bd);padding:6px 12px}
+.md th{background:var(--hdr-bg)}
+</style>
 </head>
 <body>
-    <div class="header">
-        <div>
-            <span class="state-badge">${stateIcon} ${stateText}</span>
-            ${pr.draft ? '<span class="state-badge" style="background-color: #6e7681;">Draft</span>' : ''}
-        </div>
-        <h1 class="title">#${pr.number}: ${pr.title}</h1>
-        <div class="metadata">
-            <strong>${pr.user?.login || 'Unknown'}</strong> wants to merge 
-            <strong>${pr.head?.ref || 'unknown'}</strong> into 
-            <strong>${pr.base?.ref || 'unknown'}</strong>
-            • Created ${new Date(pr.created_at).toLocaleString()}
-        </div>
-    </div>
+<div class="gh-header">
+  <h1 class="gh-title">${this.escapeHtml(pr.title)} <span class="gh-title-num">#${pr.number}</span></h1>
+  <div class="gh-meta">
+    <span class="badge ${stateOpen ? 'badge-open' : stateMerged ? 'badge-merged' : 'badge-closed'}">${stateOpen ? svgOpen : stateMerged ? svgMerged : svgClosed} ${stateText}</span>
+    ${pr.draft ? '<span class="badge badge-draft">Draft</span>' : ''}
+    <span><strong>${this.escapeHtml(pr.user?.login || 'Unknown')}</strong> wants to merge <strong>${this.escapeHtml(pr.head?.ref || 'unknown')}</strong> into <strong>${this.escapeHtml(pr.base?.ref || 'unknown')}</strong></span>
+    <span>· ${new Date(pr.created_at).toLocaleString()}</span>
+  </div>
+</div>
 
-    ${isOutOfDate ? `
-    <div class="section">
-        <div style="display:flex; align-items:flex-start; padding: 12px; background-color: rgba(255, 193, 7, 0.1); border: 1px solid var(--vscode-panel-border); border-left: 4px solid #d29922; border-radius: 6px;">
-            <div style="margin-right: 12px; color: #d29922;">⚠</div>
-            <div style="flex:1;">
-                <div style="font-weight:600; margin-bottom:6px;">This pull request is blocked because it's outdated.</div>
-                <div style="color: var(--vscode-descriptionForeground); margin-bottom: 10px;">This branch is out-of-date with the base branch${behindCount ? ` (behind by ${behindCount} commit${behindCount > 1 ? 's' : ''})` : ''}.</div>
-                <div>
-                    <button class="secondary" onclick="updateBranch('merge')">Update branch by merge</button>
-                </div>
+<div class="stats-row">
+  <div class="stat-item">Commits: <b>${pr.commits || commits.length || 0}</b></div>
+  <div class="stat-item">Files changed: <b>${pr.changed_files || files.length || 0}</b></div>
+  <div class="stat-item">Additions: <b style="color:#3fb950">+${pr.additions || 0}</b></div>
+  <div class="stat-item">Deletions: <b style="color:#f85149">-${pr.deletions || 0}</b></div>
+</div>
+
+${isOutOfDate ? `
+<div class="ood-banner">
+  <div class="ood-icon">⚠</div>
+  <div>
+    <div style="font-weight:600;margin-bottom:4px">This branch is out-of-date with the base branch</div>
+    <div style="color:var(--fg2);margin-bottom:8px">Behind by ${behindCount} commit${behindCount !== 1 ? 's' : ''}.</div>
+    <button class="btn btn-secondary" onclick="updateBranch('merge')">Update branch</button>
+  </div>
+</div>` : ''}
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('conversation',this)">Conversation <span style="background:var(--hdr-bg);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:11px;margin-left:4px">${(comments?.length || 0) + (reviews?.length || 0)}</span></button>
+  <button class="tab" onclick="switchTab('commits',this)">Commits <span style="background:var(--hdr-bg);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:11px;margin-left:4px">${commits?.length || 0}</span></button>
+  <button class="tab" onclick="switchTab('files',this)">Files changed <span style="background:var(--hdr-bg);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:11px;margin-left:4px">${files?.length || 0}</span></button>
+</div>
+
+<div id="tab-conversation" class="tab-panel active">
+  <div class="gh-layout">
+    <div class="gh-main">
+      <div class="gh-tl">
+        ${pr.body ? `
+        <div class="gh-tl-item">
+          <div class="avatar">${(pr.user?.login || '?')[0].toUpperCase()}</div>
+          <div class="comment-box">
+            <div class="comment-header">
+              <span class="ch-author">${this.escapeHtml(pr.user?.login || 'Unknown')}</span>
+              <span class="ch-meta">opened this · ${new Date(pr.created_at).toLocaleString()}</span>
             </div>
+            <div class="comment-body md">${this.renderMarkdown(pr.body)}</div>
+          </div>
+        </div>` : ''}
+        ${reviewsHtml}
+        ${commentsHtml}
+      </div>
+      ${mergeBoxHtml}
+      ${stateOpen ? `
+      <div class="review-section">
+        <div class="review-section-hdr">Leave a review</div>
+        <div class="review-section-body">
+          <textarea id="reviewBody" placeholder="Leave a review comment (optional)..." style="width:100%;min-height:80px;background:var(--inp-bg);color:var(--inp-fg);border:1px solid var(--inp-bd);border-radius:6px;padding:8px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
+          <div class="review-btns">
+            <button class="btn btn-success" onclick="submitReview('APPROVED')">✓ Approve</button>
+            <button class="btn btn-secondary" onclick="submitReview('COMMENT')">Comment</button>
+            <button class="btn btn-danger" onclick="submitReview('REQUEST_CHANGES')">✗ Request changes</button>
+          </div>
         </div>
-    </div>
-    ` : ''}
-
-    <div class="info-grid">
-        <div class="info-item">
-            <div class="info-label">Commits</div>
-            <div class="info-value">${pr.commits || 0}</div>
+      </div>` : ''}
+      <div class="new-box" style="margin-top:16px">
+        <textarea id="commentBody" placeholder="Leave a comment..."></textarea>
+        <div class="new-box-actions">
+          <button class="btn btn-secondary" onclick="createBranch()">Create branch</button>
+          <button class="btn btn-secondary" onclick="openInBrowser()">Open in browser</button>
+          <button class="btn btn-primary" onclick="addComment()">Comment</button>
         </div>
-        <div class="info-item">
-            <div class="info-label">Changed Files</div>
-            <div class="info-value">${pr.changed_files || 0}</div>
+      </div>
+    </div>
+    <div class="gh-sidebar">
+      <div class="sb-section">
+        <div class="sb-heading">Reviewers</div>
+        <div class="sb-body">${reviewersHtml}</div>
+      </div>
+      <div class="sb-section">
+        <div class="sb-heading">Assignees</div>
+        <div class="sb-body">${assigneesHtml}</div>
+      </div>
+      <div class="sb-section">
+        <div class="sb-heading">Labels</div>
+        <div class="sb-body">${labelsHtml}</div>
+      </div>
+      ${pr.milestone ? `
+      <div class="sb-section">
+        <div class="sb-heading">Milestone</div>
+        <div class="sb-body">
+          <div class="sb-item">${this.escapeHtml(pr.milestone.title)}</div>
+          ${pr.milestone.due_on ? `<div class="sb-item" style="font-size:12px;color:var(--fg2)">Due ${new Date(pr.milestone.due_on).toLocaleDateString()}</div>` : ''}
         </div>
-        <div class="info-item">
-            <div class="info-label">Additions</div>
-            <div class="info-value" style="color: #3fb950;">+${pr.additions || 0}</div>
+      </div>` : ''}
+      <div class="sb-section">
+        <div class="sb-heading">Activity</div>
+        <div class="sb-body" style="font-size:12px">
+          <div class="sb-item"><span style="color:var(--fg2)">Opened:</span> ${new Date(pr.created_at).toLocaleDateString()}</div>
+          ${pr.updated_at ? `<div class="sb-item"><span style="color:var(--fg2)">Updated:</span> ${new Date(pr.updated_at).toLocaleDateString()}</div>` : ''}
+          ${pr.merged_at ? `<div class="sb-item"><span style="color:var(--fg2)">Merged:</span> ${new Date(pr.merged_at).toLocaleDateString()}</div>` : ''}
+          ${pr.closed_at && !pr.merged_at ? `<div class="sb-item"><span style="color:var(--fg2)">Closed:</span> ${new Date(pr.closed_at).toLocaleDateString()}</div>` : ''}
         </div>
-        <div class="info-item">
-            <div class="info-label">Deletions</div>
-            <div class="info-value" style="color: #f85149;">-${pr.deletions || 0}</div>
-        </div>
+      </div>
     </div>
+  </div>
+</div>
 
-    ${pr.body ? `
-    <div class="section">
-        <!-- <div class="section-title">Description</div> -->
-        <div class="description markdown-body">${this.renderMarkdown(pr.body)}</div>
-    </div>
-    ` : ''}
+<div id="tab-commits" class="tab-panel">
+  ${commitsHtml}
+</div>
 
-    ${commits && commits.length > 0 ? `
-    <div class="section">
-        <div class="section-title">Commits (${commits.length})</div>
-        ${commits.map(commit => `
-            <div class="comment">
-                <div class="comment-header">
-                    <span class="comment-author">${commit.commit?.author?.name || commit.author?.login || 'Unknown'}</span>
-                    <span class="comment-date">${new Date(commit.commit?.author?.date || commit.created_at).toLocaleString()}</span>
-                </div>
-                <div style="display: flex; flex-direction: row; justify-content: space-between; align-items: start; margin-bottom: 8px; width: 100%;">
-                    <div class="comment-body">${this.escapeHtml(commit.commit?.message || commit.message || 'No message')}</div>
-                    <code style="background-color: var(--vscode-textCodeBlock-background); padding: 2px 6px; border-radius: 3px; font-family: var(--vscode-editor-font-family); font-size: 12px;">${commit.sha?.substring(0, 7) || 'unknown'}</code>
-                </div>
-            </div>
-        `).join('')}
-    </div>
-    ` : ''}
+<div id="tab-files" class="tab-panel">
+  ${filesHtml}
+</div>
 
-    ${files && files.length > 0 ? `
-    <div class="section">
-        <div class="section-title">Files Changed (${files.length})</div>
-        <div class="files-container">
-            ${files.map((file, index) => {
-                const wordStatus = this.getFileStatus(file);
-                const iconStatus = this.getFileIcon(wordStatus);
-                return `
-                <div class="file-item">
-                    <div class="file-header" onclick="toggleFile(${index})">
-                        <span class="file-icon">${iconStatus}</span>
-                        <span class="file-name">${this.escapeHtml(file.filename)}</span>
-                        <span class="file-stats">
-                            <span class="additions">+${file.additions || 0}</span>
-                            <span class="deletions">-${file.deletions || 0}</span>
-                        </span>
-                    </div>
-                    <div class="file-diff" id="file-${index}" style="display: none;">
-                        ${file.patch ? this.renderDiff(file.patch) : '<p>No diff available</p>'}
-                    </div>
-                </div>
-                `;
-            }).join('')}
-        </div>
-    </div>
-    ` : ''}
-
-    <div class="section">
-        <div class="section-title">Comments (${comments?.length || 0})</div>
-        ${comments && comments.length > 0 ? comments.map(comment => `
-            <div class="comment">
-                <div class="comment-header">
-                    <span class="comment-author">${comment.user?.login || 'Unknown'}</span>
-                    <span class="comment-date">${new Date(comment.created_at).toLocaleString()}</span>
-                </div>
-                <div class="comment-body markdown-body">${this.renderMarkdown(comment.body || '')}</div>
-            </div>
-        `).join('') : '<p>No comments yet.</p>'}
-        
-        <div style="margin-top: 16px;">
-            <textarea id="commentBody" placeholder="Leave a comment..."></textarea>
-            <div class="button-group">
-                <button onclick="addComment()">Add Comment</button>
-            </div>
-        </div>
-    </div>
-
-    ${reviews && reviews.length > 0 ? `
-    <div class="section">
-        <div class="section-title">Reviews (${reviews.length})</div>
-        ${reviews.map(review => `
-            <div class="review review-${review.state?.toLowerCase()}">
-                <div class="comment-header">
-                    <span class="comment-author">${review.user?.login || 'Unknown'}</span>
-                    <span class="comment-date">${new Date(review.submitted_at).toLocaleString()}</span>
-                </div>
-                <div><strong>${review.state || 'COMMENTED'}</strong></div>
-                ${review.body ? `<div class="comment-body markdown-body">${this.renderMarkdown(review.body)}</div>` : ''}
-            </div>
-        `).join('')}
-    </div>
-    ` : ''}
-
-    ${pr.state === 'open' ? `
-    <div class="section">
-        <div class="section-title">Review Actions</div>
-        <textarea id="reviewBody" placeholder="Leave a review comment (optional)..."></textarea>
-        <div class="button-group">
-            <button class="success" onclick="submitReview('APPROVED')">✓ Approve</button>
-            <button onclick="submitReview('COMMENT')">Comment</button>
-            <button class="danger" onclick="submitReview('REQUEST_CHANGES')">Request Changes</button>
-        </div>
-    </div>
-
-    <div class="actions">
-        ${pr.mergeable ? `
-            <button class="success" onclick="mergePR('merge')">Merge Pull Request</button>
-            <button class="secondary" onclick="mergePR('squash')">Squash and Merge</button>
-            <button class="secondary" onclick="mergePR('rebase')">Rebase and Merge</button>
-            <button class="danger" onclick="closePR()">Close PR</button>
-            <button class="secondary" onclick="createBranch()">Create Branch</button>
-            <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
-        ` : `
-            <div style="width: 100%;">
-                <div style="display: flex; align-items: center; padding: 12px; background-color: rgba(248, 81, 73, 0.1); border: 1px solid #f85149; border-radius: 6px; margin-bottom: 16px;">
-                    <span style="font-size: 20px; margin-right: 12px;">✕</span>
-                    <div>
-                        <div style="font-weight: 600; color: var(--vscode-errorForeground); margin-bottom: 4px;">This pull request has changes conflicting with the target branch.</div>
-                        ${conflictingFiles.length > 0 ? `
-                            <ul style="margin: 8px 0 0 0; padding-left: 20px; color: var(--vscode-descriptionForeground);">
-                                ${conflictingFiles.map(file => `<li style=\"font-family: var(--vscode-editor-font-family); font-size: 13px;\">${this.escapeHtml(file.filename)}</li>`).join('')}
-                            </ul>
-                        ` : `<div style="color: var(--vscode-descriptionForeground);">Conflicts detected, but the API did not identify specific files. Check the PR on your server or attempt a local merge for exact paths.</div>`}
-                    </div>
-                </div>
-                <button class="danger" onclick="closePR()">Close PR</button>
-                <button class="secondary" onclick="createBranch()">Create Branch</button>
-                <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
-            </div>
-        `}
-    </div>
-    ` : `
-    <div class="actions">
-        <button class="secondary" onclick="createBranch()">Create Branch</button>
-        <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
-    </div>
-    `}
-
-    <script>
-        const vscode = acquireVsCodeApi();
-
-        function addComment() {
-            const body = document.getElementById('commentBody').value.trim();
-            if (!body) {
-                return;
-            }
-            vscode.postMessage({ command: 'addComment', body });
-            document.getElementById('commentBody').value = '';
-        }
-
-        function submitReview(event) {
-            const body = document.getElementById('reviewBody').value.trim();
-            vscode.postMessage({ command: 'addReview', body, event });
-            document.getElementById('reviewBody').value = '';
-        }
-
-        function mergePR(mergeMethod) {
-            showConfirmation('Merge Pull Request', 'Are you sure you want to merge this pull request?', () => {
-                vscode.postMessage({ command: 'mergePR', mergeMethod });
-            });
-        }
-
-        function closePR() {
-            showConfirmation('Close Pull Request', 'Are you sure you want to close this pull request?', () => {
-                vscode.postMessage({ command: 'closePR' });
-            });
-        }
-
-        function createBranch() {
-            vscode.postMessage({ command: 'createBranch' });
-        }
-
-        function updateBranch(style) {
-            vscode.postMessage({ command: 'updateBranch', style });
-        }
-
-        function showConfirmation(title, message, onConfirm) {
-            const modal = document.createElement('div');
-            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;';
-            
-            const dialog = document.createElement('div');
-            dialog.style.cssText = 'background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:6px;padding:20px;max-width:400px;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-            
-            dialog.innerHTML = \`
-                <div style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--vscode-foreground);">\${title}</div>
-                <div style="font-size:14px;margin-bottom:20px;color:var(--vscode-descriptionForeground);">\${message}</div>
-                <div style="display:flex;gap:8px;justify-content:flex-end;">
-                    <button onclick="this.parentElement.parentElement.parentElement.remove();" style="background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;">Cancel</button>
-                    <button id="confirmBtn" style="background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:500;">Confirm</button>
-                </div>
-            \`;
-            
-            modal.appendChild(dialog);
-            document.body.appendChild(modal);
-            
-            document.getElementById('confirmBtn').onclick = () => {
-                modal.remove();
-                onConfirm();
-            };
-        }
-
-        function openInBrowser() {
-            vscode.postMessage({ command: 'openInBrowser' });
-        }
-
-        function toggleFile(index) {
-            const fileDiv = document.getElementById('file-' + index);
-            if (fileDiv) {
-                if (fileDiv.style.display === 'none') {
-                    fileDiv.style.display = 'block';
-                } else {
-                    fileDiv.style.display = 'none';
-                }
-            }
-        }
-    </script>
+<script>
+const vscode = acquireVsCodeApi();
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+function addComment() {
+  var body = document.getElementById('commentBody').value.trim();
+  if (!body) return;
+  vscode.postMessage({ command: 'addComment', body });
+  document.getElementById('commentBody').value = '';
+}
+function submitReview(event) {
+  var el = document.getElementById('reviewBody');
+  var body = el ? el.value.trim() : '';
+  vscode.postMessage({ command: 'addReview', body, event });
+  if (el) el.value = '';
+}
+function mergePR() {
+  var el = document.getElementById('mergeMethod');
+  var method = el ? el.value : 'merge';
+  dlg('Merge Pull Request', 'Are you sure you want to merge this pull request?', function() {
+    vscode.postMessage({ command: 'mergePR', mergeMethod: method });
+  });
+}
+function closePR() {
+  dlg('Close Pull Request', 'Are you sure you want to close this pull request?', function() {
+    vscode.postMessage({ command: 'closePR' });
+  });
+}
+function reopenPR() { vscode.postMessage({ command: 'reopenPR' }); }
+function createBranch() { vscode.postMessage({ command: 'createBranch' }); }
+function updateBranch(style) { vscode.postMessage({ command: 'updateBranch', style }); }
+function openInBrowser() { vscode.postMessage({ command: 'openInBrowser' }); }
+function toggleFile(i) {
+  var el = document.getElementById('fdiff-' + i);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function dlg(title, msg, cb) {
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+  var bx = document.createElement('div');
+  bx.style.cssText = 'background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:20px;max-width:400px;width:90%;box-shadow:0 4px 16px rgba(0,0,0,.3)';
+  var h = document.createElement('div'); h.style.cssText = 'font-size:15px;font-weight:600;margin-bottom:10px'; h.textContent = title;
+  var p = document.createElement('div'); p.style.cssText = 'font-size:13px;color:var(--fg2);margin-bottom:18px'; p.textContent = msg;
+  var row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+  var cn = document.createElement('button'); cn.textContent = 'Cancel';
+  cn.style.cssText = 'background:var(--btn2-bg);color:var(--btn2-fg);border:none;border-radius:6px;padding:5px 14px;cursor:pointer;font-size:13px';
+  cn.onclick = function() { ov.remove(); };
+  var ok = document.createElement('button'); ok.textContent = 'Confirm';
+  ok.style.cssText = 'background:var(--btn-bg);color:var(--btn-fg);border:none;border-radius:6px;padding:5px 14px;cursor:pointer;font-size:13px;font-weight:500';
+  ok.onclick = function() { ov.remove(); cb(); };
+  row.append(cn, ok); bx.append(h, p, row); ov.append(bx); document.body.append(ov);
+}
+</script>
 </body>
 </html>`;
     }
@@ -959,12 +811,13 @@ class IssueWebviewProvider {
             }
 
             const [owner, repo] = repository.split('/');
-            let issueDetails, comments;
+            let issueDetails, comments, currentUser;
 
             try {
-                [issueDetails, comments] = await Promise.all([
+                [issueDetails, comments, currentUser] = await Promise.all([
                     this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}`),
-                    this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`)
+                    this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`),
+                    this.auth.makeRequest('/api/v1/user').catch(() => null)
                 ]);
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to load Issue #${issueNumber}: ${error.message}`);
@@ -992,15 +845,24 @@ class IssueWebviewProvider {
                     try {
                         switch (message.command) {
                             case 'addComment':
-                                await this.addComment(owner, repo, issueNumber, message.body);
+                                await this.addComment(owner, repo, issueNumber, message.body, panel, currentUser);
+                                break;
+                            case 'editComment':
+                                await this.editComment(owner, repo, issueNumber, message.commentId, message.body, panel, currentUser);
+                                break;
+                            case 'deleteComment':
+                                await this.deleteComment(owner, repo, issueNumber, message.commentId, panel, currentUser);
+                                break;
+                            case 'refresh':
+                                await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
                                 break;
                             case 'closeIssue':
                                 await this.closeIssue(owner, repo, issueNumber);
-                                panel.dispose();
+                                await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
                                 break;
                             case 'reopenIssue':
                                 await this.reopenIssue(owner, repo, issueNumber);
-                                panel.dispose();
+                                await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
                                 break;
                             case 'createBranch':
                                 vscode.commands.executeCommand('gitea.createBranchFromIssue', {
@@ -1018,23 +880,61 @@ class IssueWebviewProvider {
                 }
             );
 
-            panel.webview.html = this.getIssueHtml(panel.webview, issueDetails, comments);
+            panel.webview.html = this.getIssueHtml(panel.webview, issueDetails, comments, currentUser);
         } catch (error) {
             console.error('Failed to show issue:', error);
             vscode.window.showErrorMessage(`Failed to show issue: ${error.message}`);
         }
     }
 
-    async addComment(owner, repo, issueNumber, body) {
+    async addComment(owner, repo, issueNumber, body, panel, currentUser) {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
                 method: 'POST',
                 body: { body }
             });
             vscode.window.showInformationMessage('Comment added successfully');
-            await this.showIssue(issueNumber, `${owner}/${repo}`);
+            await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to add comment: ${error.message}`);
+        }
+    }
+
+    async editComment(owner, repo, issueNumber, commentId, body, panel, currentUser) {
+        try {
+            await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/comments/${commentId}`, {
+                method: 'PATCH',
+                body: { body }
+            });
+            vscode.window.showInformationMessage('Comment updated');
+            await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to edit comment: ${error.message}`);
+        }
+    }
+
+    async deleteComment(owner, repo, issueNumber, commentId, panel, currentUser) {
+        try {
+            await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/comments/${commentId}`, {
+                method: 'DELETE'
+            });
+            vscode.window.showInformationMessage('Comment deleted');
+            await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to delete comment: ${error.message}`);
+        }
+    }
+
+    async _refreshPanel(panel, owner, repo, issueNumber, currentUser) {
+        try {
+            const [issueDetails, comments] = await Promise.all([
+                this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}`),
+                this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`)
+            ]);
+            panel.title = `Issue #${issueNumber}: ${issueDetails.title}`;
+            panel.webview.html = this.getIssueHtml(panel.webview, issueDetails, comments, currentUser);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to refresh issue: ${error.message}`);
         }
     }
 
@@ -1062,338 +962,271 @@ class IssueWebviewProvider {
         }
     }
 
-    getIssueHtml(webview, issue, comments) {
-        const stateColor = issue.state === 'open' ? '#3fb950' : '#8957e5';
-        const stateIcon = issue.state === 'open' ? '●' : '✓';
-        const stateText = issue.state === 'open' ? 'Open' : 'Closed';
+    getIssueHtml(webview, issue, comments, currentUser) {
+        const currentLogin = currentUser?.login || null;
+        const stateOpen = issue.state === 'open';
+        const commentCount = comments?.length || 0;
+
+        const labelsHtml = (issue.labels && issue.labels.length > 0)
+            ? issue.labels.map(l => `<span class="label-pill" style="background:#${this.escapeHtml(l.color)};color:${this.getContrastColor(l.color)}">${this.escapeHtml(l.name)}</span>`).join('')
+            : '';
+
+        const commentsHtml = (comments && comments.length > 0)
+            ? comments.map(c => {
+                const isOwn = currentLogin && c.user?.login === currentLogin;
+                const cid = `c${c.id}`;
+                return `
+        <div class="tl-item" id="${cid}">
+          <div class="avatar">${this.escapeHtml((c.user?.login || '?')[0])}</div>
+          <div class="comment-box">
+            <div class="comment-header">
+              <span class="comment-author">${this.escapeHtml(c.user?.login || 'Unknown')}</span>
+              <span class="comment-meta">commented on ${new Date(c.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})}${c.updated_at && c.updated_at !== c.created_at ? ' &middot; edited' : ''}</span>
+              ${isOwn ? `<div class="hdr-btns"><button class="btn btn-ghost btn-sm" onclick="startEdit('${cid}')">Edit</button><button class="btn btn-dghost btn-sm" onclick="delComment(${c.id})">Delete</button></div>` : ''}
+            </div>
+            <div class="comment-body md" id="body-${cid}">${this.renderMarkdown(c.body || '')}</div>
+            <div class="edit-wrap" id="edit-${cid}">
+              <textarea id="etxt-${cid}">${this.escapeHtml(c.body || '')}</textarea>
+              <div class="edit-actions">
+                <button class="btn btn-ghost btn-sm" onclick="cancelEdit('${cid}')">Cancel</button>
+                <button class="btn btn-sm" onclick="saveEdit('${cid}',${c.id})">Save changes</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+            }).join('')
+            : '';
+
+        const participantLogins = (comments || []).reduce((acc, c) => {
+            if (c.user?.login && !acc.includes(c.user.login)) acc.push(c.user.login);
+            return acc;
+        }, [issue.user?.login].filter(Boolean));
 
         return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: var(--vscode-font-family);
-            color: var(--vscode-foreground);
-            background-color: var(--vscode-editor-background);
-            padding: 20px;
-            line-height: 1.6;
-        }
-        .header {
-            border-bottom: 1px solid var(--vscode-panel-border);
-            padding-bottom: 16px;
-            margin-bottom: 20px;
-        }
-        .title {
-            font-size: 24px;
-            font-weight: 600;
-            margin: 8px 0;
-        }
-        .state-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 4px 12px;
-            border-radius: 16px;
-            font-size: 14px;
-            font-weight: 500;
-            background-color: ${stateColor};
-            color: white;
-            margin-right: 8px;
-        }
-        .metadata {
-            color: var(--vscode-descriptionForeground);
-            font-size: 14px;
-            margin-top: 8px;
-        }
-        .section {
-            margin: 24px 0;
-        }
-        .section-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-            padding-bottom: 8px;
-        }
-        .description {
-            background-color: var(--vscode-textBlockQuote-background);
-            border-left: 4px solid var(--vscode-textBlockQuote-border);
-            padding: 12px 16px;
-            margin: 12px 0;
-            border-radius: 4px;
-        }
-        .comment {
-            background-color: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-panel-border);
-            border-radius: 6px;
-            padding: 12px;
-            margin-bottom: 12px;
-            border-radius: 4px;
-        }
-        .comment-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 13px;
-        }
-        .comment-author {
-            font-weight: 600;
-            color: var(--vscode-textLink-foreground);
-        }
-        .comment-date {
-            color: var(--vscode-descriptionForeground);
-        }
-        .comment-body {
-            line-height: 1.5;
-        }
-        .labels {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            margin: 12px 0;
-        }
-        .label {
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        textarea {
-            width: 100%;
-            min-height: 100px;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            padding: 8px;
-            font-family: var(--vscode-font-family);
-            font-size: 13px;
-            resize: vertical;
-        }
-        .button-group {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-        }
-        button {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 6px 14px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-        }
-        button:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-        button.secondary {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        button.secondary:hover {
-            background-color: var(--vscode-button-secondaryHoverBackground);
-        }
-        button.danger {
-            background-color: #f85149;
-            color: white;
-        }
-        button.success {
-            background-color: #3fb950;
-            color: white;
-        }
-        .actions {
-            display: flex;
-            flex-direction: row;
-            align-items: center;
-            gap: 8px;
-            margin-top: 16px;
-            padding-top: 16px;
-            border-top: 1px solid var(--vscode-panel-border);
-        }
-        .markdown-body {
-            line-height: 1.7;
-        }
-        .markdown-body > *:first-child {
-            margin-top: 0 !important;
-        }
-        .markdown-body > *:last-child {
-            margin-bottom: 0 !important;
-        }
-        .markdown-body h1, .markdown-body h2, .markdown-body h3, 
-        .markdown-body h4, .markdown-body h5, .markdown-body h6 {
-            margin-top: 20px;
-            margin-bottom: 12px;
-            font-weight: 600;
-            line-height: 1.3;
-        }
-        .markdown-body h1 { font-size: 1.8em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 0.3em; margin-top: 0; }
-        .markdown-body h2 { font-size: 1.4em; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 0.3em; }
-        .markdown-body h3 { font-size: 1.2em; }
-        .markdown-body h4 { font-size: 1.1em; }
-        .markdown-body p {
-            margin-top: 0;
-            margin-bottom: 12px;
-        }
-        .markdown-body code {
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-family: var(--vscode-editor-font-family);
-            font-size: 0.85em;
-        }
-        .markdown-body pre {
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 12px;
-            overflow: auto;
-            border-radius: 6px;
-            line-height: 1.5;
-            margin: 12px 0;
-        }
-        .markdown-body pre code {
-            background-color: transparent;
-            padding: 0;
-        }
-        .markdown-body blockquote {
-            border-left: 4px solid var(--vscode-textBlockQuote-border);
-            padding-left: 16px;
-            color: var(--vscode-descriptionForeground);
-            margin: 12px 0;
-        }
-        .markdown-body ul, .markdown-body ol {
-            padding-left: 2em;
-            margin: 8px 0 12px 0;
-        }
-        .markdown-body li {
-            margin-top: 4px;
-        }
-        .markdown-body a {
-            color: var(--vscode-textLink-foreground);
-            text-decoration: none;
-        }
-        .markdown-body a:hover {
-            text-decoration: underline;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --open:#2da44e;--closed:#8957e5;--danger:#cf222e;
+  --bd:var(--vscode-panel-border);
+  --bg:var(--vscode-editor-background);
+  --fg:var(--vscode-foreground);
+  --muted:var(--vscode-descriptionForeground);
+  --hdr-bg:var(--vscode-sideBarSectionHeader-background,var(--vscode-textBlockQuote-background));
+  --input-bg:var(--vscode-input-background);
+  --input-fg:var(--vscode-input-foreground);
+  --input-bd:var(--vscode-input-border,var(--bd));
+  --btn-bg:var(--vscode-button-background);
+  --btn-fg:var(--vscode-button-foreground);
+  --btn-hv:var(--vscode-button-hoverBackground);
+  --btn2-bg:var(--vscode-button-secondaryBackground);
+  --btn2-fg:var(--vscode-button-secondaryForeground);
+  --btn2-hv:var(--vscode-button-secondaryHoverBackground);
+  --code-bg:var(--vscode-textCodeBlock-background);
+  --link:var(--vscode-textLink-foreground);
+}
+body{font-family:var(--vscode-font-family),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;color:var(--fg);background:var(--bg);margin:0;padding:0;line-height:1.5}
+a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
+
+.gh-page{max-width:1200px;margin:0 auto;padding:20px 16px}
+
+.gh-hdr{padding-bottom:16px;margin-bottom:20px;border-bottom:1px solid var(--bd)}
+.gh-title{font-size:24px;font-weight:400;margin:0 0 8px;line-height:1.3;word-break:break-word}
+.gh-title .num{color:var(--muted);font-weight:300}
+.gh-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px;color:var(--muted)}
+.gh-labels-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
+.label-pill{display:inline-flex;align-items:center;padding:0 8px;height:20px;border-radius:2em;font-size:12px;font-weight:500}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:2em;font-size:12px;font-weight:500;color:#fff;white-space:nowrap}
+.badge-open{background:var(--open)}.badge-closed{background:var(--closed)}
+
+.gh-layout{display:flex;gap:24px;align-items:flex-start}
+.gh-main{flex:1;min-width:0}.gh-sidebar{width:244px;flex-shrink:0;font-size:13px}
+@media(max-width:768px){.gh-layout{flex-direction:column}.gh-sidebar{width:100%}}
+
+.gh-tl{position:relative}
+.gh-tl::before{content:'';position:absolute;left:19px;top:44px;bottom:0;width:2px;background:var(--bd);z-index:0}
+.tl-item{display:flex;gap:12px;margin-bottom:16px;position:relative;z-index:1}
+.avatar{width:40px;height:40px;min-width:40px;border-radius:50%;background:var(--btn-bg);color:var(--btn-fg);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;text-transform:uppercase;border:2px solid var(--bg);z-index:1;flex-shrink:0}
+.avatar-sm{width:22px;height:22px;min-width:22px;border-radius:50%;background:var(--btn-bg);color:var(--btn-fg);display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;text-transform:uppercase}
+
+.comment-box{flex:1;min-width:0;border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.comment-header{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:8px 12px;background:var(--hdr-bg);border-bottom:1px solid var(--bd);font-size:13px}
+.comment-author{font-weight:600;color:var(--fg)}.comment-meta{color:var(--muted)}
+.hdr-btns{margin-left:auto;display:flex;gap:4px}
+.comment-body{padding:12px 16px}
+.edit-wrap{display:none;padding:8px 12px;border-top:1px solid var(--bd)}
+.edit-wrap textarea{width:100%;min-height:80px;background:var(--input-bg);color:var(--input-fg);border:1px solid var(--input-bd);border-radius:6px;padding:8px;font-family:inherit;font-size:13px;resize:vertical;outline:none;display:block}
+.edit-actions{display:flex;justify-content:flex-end;gap:6px;margin-top:8px}
+.new-box{flex:1;min-width:0;border:1px solid var(--bd);border-radius:6px;overflow:hidden}
+.new-box textarea{width:100%;min-height:100px;background:var(--input-bg);color:var(--input-fg);border:none;border-bottom:1px solid var(--bd);padding:12px;font-family:inherit;font-size:13px;resize:vertical;outline:none;display:block}
+.new-box-footer{display:flex;justify-content:flex-end;padding:8px 12px;background:var(--hdr-bg)}
+
+button{font-family:inherit;cursor:pointer;border:none;border-radius:6px;font-size:13px;font-weight:500;padding:5px 16px;line-height:20px}
+.btn{background:var(--btn-bg);color:var(--btn-fg)}.btn:hover{background:var(--btn-hv)}
+.btn-secondary{background:var(--btn2-bg);color:var(--btn2-fg)}.btn-secondary:hover{background:var(--btn2-hv)}
+.btn-danger{background:var(--danger);color:#fff}.btn-danger:hover{background:#a40e26}
+.btn-success{background:var(--open);color:#fff}.btn-success:hover{background:#2c974b}
+.btn-ghost{background:transparent;color:var(--muted);padding:3px 8px}.btn-ghost:hover{color:var(--fg);background:var(--hdr-bg)}
+.btn-dghost{background:transparent;color:var(--danger);padding:3px 8px}.btn-dghost:hover{background:rgba(207,34,46,.1)}
+.btn-sm{padding:3px 10px;font-size:12px}
+.gh-actions{display:flex;gap:8px;align-items:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--bd);flex-wrap:wrap}
+
+.sb-section{padding:16px 0;border-bottom:1px solid var(--bd)}
+.sb-section:first-child{padding-top:0}.sb-section:last-child{border-bottom:none;padding-bottom:0}
+.sb-heading{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:8px}
+.sb-empty{color:var(--muted);font-size:13px}
+.sb-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+
+.md{line-height:1.7}.md>*:first-child{margin-top:0!important}.md>*:last-child{margin-bottom:0!important}
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{margin-top:20px;margin-bottom:12px;font-weight:600;line-height:1.3}
+.md h1{font-size:1.8em;border-bottom:1px solid var(--bd);padding-bottom:.3em;margin-top:0}.md h2{font-size:1.4em;border-bottom:1px solid var(--bd);padding-bottom:.3em}
+.md h3{font-size:1.2em}.md h4{font-size:1.1em}.md p{margin-top:0;margin-bottom:12px}
+.md code{background:var(--code-bg);padding:.2em .4em;border-radius:3px;font-family:var(--vscode-editor-font-family);font-size:.85em}
+.md pre{background:var(--code-bg);padding:12px;overflow:auto;border-radius:6px;line-height:1.5;margin:12px 0}.md pre code{background:transparent;padding:0}
+.md blockquote{border-left:4px solid var(--vscode-textBlockQuote-border,var(--bd));padding-left:16px;color:var(--muted);margin:12px 0}
+.md ul,.md ol{padding-left:2em;margin:8px 0 12px}.md li{margin-top:4px}
+.md a{color:var(--link)}.md a:hover{text-decoration:underline}.md img{max-width:100%}
+.md table{border-collapse:collapse;width:100%;margin:12px 0}.md th,.md td{border:1px solid var(--bd);padding:6px 12px}
+.md th{font-weight:600;background:var(--hdr-bg)}
+</style>
 </head>
 <body>
-    <div class="header">
-        <div>
-            <span class="state-badge">${stateIcon} ${stateText}</span>
-        </div>
-        <h1 class="title">#${issue.number}: ${issue.title}</h1>
-        <div class="metadata">
-            <strong>${issue.user?.login || 'Unknown'}</strong> opened this issue 
-            ${new Date(issue.created_at).toLocaleString()}
-            ${issue.comments ? ` • ${issue.comments} comment${issue.comments !== 1 ? 's' : ''}` : ''}
-        </div>
-        ${issue.labels && issue.labels.length > 0 ? `
-        <div class="labels">
-            ${issue.labels.map(label => `
-                <span class="label" style="background-color: #${label.color}; color: ${this.getContrastColor(label.color)};">
-                    ${label.name}
-                </span>
-            `).join('')}
-        </div>
-        ` : ''}
-    </div>
+<div class="gh-page">
 
-    ${issue.body ? `
-    <div class="section">
-        <div class="section-title">Description</div>
-        <div class="description markdown-body">${this.renderMarkdown(issue.body)}</div>
+  <div class="gh-hdr">
+    <h1 class="gh-title">${this.escapeHtml(issue.title)}&nbsp;<span class="num">#${issue.number}</span></h1>
+    <div class="gh-meta">
+      <span class="badge badge-${stateOpen ? 'open' : 'closed'}">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0">${stateOpen
+          ? '<path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/>'
+          : '<path d="M11.28 6.78a.75.75 0 0 0-1.06-1.06L7.25 8.69 5.78 7.22a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l3.5-3.5Z"/><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0Zm-1.5 0a6.5 6.5 0 1 0-13 0 6.5 6.5 0 0 0 13 0Z"/>'}
+        </svg>
+        ${stateOpen ? 'Open' : 'Closed'}
+      </span>
+      <span><strong>${this.escapeHtml(issue.user?.login || 'Unknown')}</strong> opened this issue ${new Date(issue.created_at).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'})} &middot; ${commentCount} comment${commentCount !== 1 ? 's' : ''}</span>
     </div>
-    ` : ''}
+    ${labelsHtml ? `<div class="gh-labels-row">${labelsHtml}</div>` : ''}
+  </div>
 
-    <div class="section">
-        <div class="section-title">Comments (${comments?.length || 0})</div>
-        ${comments && comments.length > 0 ? comments.map(comment => `
-            <div class="comment">
-                <div class="comment-header">
-                    <span class="comment-author">${comment.user?.login || 'Unknown'}</span>
-                    <span class="comment-date">${new Date(comment.created_at).toLocaleString()}</span>
-                </div>
-                <div class="comment-body markdown-body">${this.renderMarkdown(comment.body || '')}</div>
+  <div class="gh-layout">
+    <div class="gh-main">
+      <div class="gh-tl">
+        <div class="tl-item">
+          <div class="avatar">${this.escapeHtml((issue.user?.login || '?')[0])}</div>
+          <div class="comment-box">
+            <div class="comment-header">
+              <span class="comment-author">${this.escapeHtml(issue.user?.login || 'Unknown')}</span>
+              <span class="comment-meta">opened on ${new Date(issue.created_at).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'})}</span>
             </div>
-        `).join('') : '<p>No comments yet.</p>'}
-        
-        <div style="margin-top: 16px;">
-            <textarea id="commentBody" placeholder="Leave a comment..."></textarea>
-            <div class="button-group">
-                <button onclick="addComment()">Add Comment</button>
-            </div>
+            <div class="comment-body md">${issue.body ? this.renderMarkdown(issue.body) : '<em style="color:var(--muted)">No description provided.</em>'}</div>
+          </div>
         </div>
+        ${commentsHtml}
+        <div class="tl-item">
+          <div class="avatar">${this.escapeHtml((currentUser?.login || 'Y')[0])}</div>
+          <div class="new-box">
+            <textarea id="commentBody" placeholder="Leave a comment\u2026"></textarea>
+            <div class="new-box-footer"><button class="btn" onclick="addComment()">Comment</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="gh-actions">
+        ${stateOpen
+          ? '<button class="btn-danger" onclick="closeIssue()">Close issue</button>'
+          : '<button class="btn-success" onclick="reopenIssue()">Reopen issue</button>'
+        }
+        <button class="btn-secondary" onclick="createBranch()">Create branch</button>
+        <button class="btn-secondary" onclick="openInBrowser()">Open in browser</button>
+      </div>
     </div>
 
-    <div class="actions">
-        ${issue.state === 'open'
-                ? '<button class="danger" onclick="closeIssue()">Close Issue</button>'
-                : '<button class="success" onclick="reopenIssue()">Reopen Issue</button>'
-            }
-        <button class="secondary" onclick="createBranch()">Create Branch</button>
-        <button class="secondary" onclick="openInBrowser()">Open in Browser</button>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-
-        function addComment() {
-            const body = document.getElementById('commentBody').value.trim();
-            if (!body) {
-                return;
-            }
-            vscode.postMessage({ command: 'addComment', body });
-            document.getElementById('commentBody').value = '';
+    <aside class="gh-sidebar">
+      <div class="sb-section">
+        <span class="sb-heading">Assignees</span>
+        ${issue.assignees && issue.assignees.length > 0
+          ? issue.assignees.map(a => `<div class="sb-row"><span class="avatar-sm">${this.escapeHtml(a.login[0])}</span><span>${this.escapeHtml(a.login)}</span></div>`).join('')
+          : '<span class="sb-empty">No one assigned</span>'
         }
-
-        function closeIssue() {
-            showConfirmation('Close Issue', 'Are you sure you want to close this issue?', () => {
-                vscode.postMessage({ command: 'closeIssue' });
-            });
+      </div>
+      <div class="sb-section">
+        <span class="sb-heading">Labels</span>
+        ${labelsHtml ? `<div style="display:flex;flex-wrap:wrap;gap:4px">${labelsHtml}</div>` : '<span class="sb-empty">None yet</span>'}
+      </div>
+      <div class="sb-section">
+        <span class="sb-heading">Milestone</span>
+        ${issue.milestone
+          ? `<span>${this.escapeHtml(issue.milestone.title)}${issue.milestone.due_on ? '<br><small style="color:var(--muted)">Due ' + new Date(issue.milestone.due_on).toLocaleDateString() + '</small>' : ''}</span>`
+          : '<span class="sb-empty">No milestone</span>'
         }
-
-        function reopenIssue() {
-            vscode.postMessage({ command: 'reopenIssue' });
-        }
-
-        function createBranch() {
-            vscode.postMessage({ command: 'createBranch' });
-        }
-
-        function showConfirmation(title, message, onConfirm) {
-            const modal = document.createElement('div');
-            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;';
-            
-            const dialog = document.createElement('div');
-            dialog.style.cssText = 'background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:6px;padding:20px;max-width:400px;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-            
-            dialog.innerHTML = \`
-                <div style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--vscode-foreground);">\${title}</div>
-                <div style="font-size:14px;margin-bottom:20px;color:var(--vscode-descriptionForeground);">\${message}</div>
-                <div style="display:flex;gap:8px;justify-content:flex-end;">
-                    <button onclick="this.parentElement.parentElement.parentElement.remove();" style="background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground);border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;">Cancel</button>
-                    <button id="confirmBtn" style="background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:500;">Confirm</button>
-                </div>
-            \`;
-            
-            modal.appendChild(dialog);
-            document.body.appendChild(modal);
-            
-            document.getElementById('confirmBtn').onclick = () => {
-                modal.remove();
-                onConfirm();
-            };
-        }
-
-        function openInBrowser() {
-            vscode.postMessage({ command: 'openInBrowser' });
-        }
-    </script>
+      </div>
+      ${issue.due_date ? `<div class="sb-section"><span class="sb-heading">Due date</span><span>${new Date(issue.due_date).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'})}</span></div>` : ''}
+      <div class="sb-section">
+        <span class="sb-heading">Participants</span>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+          ${participantLogins.map(l => `<span class="avatar-sm" title="${this.escapeHtml(l)}">${this.escapeHtml(l[0])}</span>`).join('')}
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+<script>
+const vscode = acquireVsCodeApi();
+function addComment() {
+  var b = document.getElementById('commentBody').value.trim();
+  if (!b) return;
+  vscode.postMessage({ command: 'addComment', body: b });
+  document.getElementById('commentBody').value = '';
+}
+function startEdit(id) {
+  document.getElementById('body-' + id).style.display = 'none';
+  document.getElementById('edit-' + id).style.display = 'block';
+}
+function cancelEdit(id) {
+  document.getElementById('edit-' + id).style.display = 'none';
+  document.getElementById('body-' + id).style.display = '';
+}
+function saveEdit(id, cid) {
+  var b = document.getElementById('etxt-' + id).value.trim();
+  if (!b) return;
+  vscode.postMessage({ command: 'editComment', commentId: cid, body: b });
+}
+function delComment(cid) {
+  dlg('Delete comment', 'Delete this comment permanently?', function() {
+    vscode.postMessage({ command: 'deleteComment', commentId: cid });
+  });
+}
+function closeIssue() {
+  dlg('Close issue', 'Are you sure you want to close this issue?', function() {
+    vscode.postMessage({ command: 'closeIssue' });
+  });
+}
+function reopenIssue() { vscode.postMessage({ command: 'reopenIssue' }); }
+function createBranch() { vscode.postMessage({ command: 'createBranch' }); }
+function openInBrowser() { vscode.postMessage({ command: 'openInBrowser' }); }
+function dlg(title, msg, cb) {
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999';
+  var bx = document.createElement('div');
+  bx.style.cssText = 'background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:24px;max-width:360px;width:90%;box-shadow:0 8px 24px rgba(0,0,0,.3)';
+  var h = document.createElement('h3'); h.textContent = title; h.style.cssText = 'margin:0 0 8px;font-size:15px';
+  var p = document.createElement('p'); p.textContent = msg; p.style.cssText = 'margin:0 0 20px;color:var(--muted);font-size:13px';
+  var row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+  var cn = document.createElement('button'); cn.textContent = 'Cancel';
+  cn.style.cssText = 'background:var(--btn2-bg);color:var(--btn2-fg);border:none;border-radius:6px;padding:5px 16px;cursor:pointer;font-size:13px';
+  cn.onclick = function() { ov.remove(); };
+  var ok = document.createElement('button'); ok.textContent = 'Confirm';
+  ok.style.cssText = 'background:var(--btn-bg);color:var(--btn-fg);border:none;border-radius:6px;padding:5px 16px;cursor:pointer;font-size:13px;font-weight:500';
+  ok.onclick = function() { ov.remove(); cb(); };
+  row.append(cn, ok); bx.append(h, p, row); ov.append(bx); document.body.append(ov);
+}
+</script>
 </body>
 </html>`;
     }
+
 
     escapeHtml(text) {
         if (!text) return '';
@@ -1842,9 +1675,12 @@ class IssueWebviewProvider {
                 branchSelect.innerHTML = '<option value="">Select a branch...</option>';
                 
                 message.branches.forEach(branch => {
-                    branchSelect.innerHTML += \`<option value="\${branch}">\${branch}</option>\`;
+                    const opt = document.createElement('option');
+                    opt.value = branch;
+                    opt.textContent = branch;
+                    branchSelect.appendChild(opt);
                 });
-                
+
                 // Auto-select 'main' or 'master' if available
                 const defaultBranches = ['main', 'master'];
                 for (const defaultBranch of defaultBranches) {
@@ -1864,16 +1700,17 @@ class IssueWebviewProvider {
                 
                 if (message.duplicates && message.duplicates.length > 0) {
                     resultsDiv.classList.add('show');
+                    const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
                     listDiv.innerHTML = message.duplicates.map(dup => \`
                         <div class="duplicate-item">
                             <div class="duplicate-header">
-                                <a href="\${dup.url}" class="duplicate-title" target="_blank">
-                                    #\${dup.number}: \${dup.title}
+                                <a href="\${escHtml(dup.url)}" class="duplicate-title" target="_blank">
+                                    #\${escHtml(dup.number)}: \${escHtml(dup.title)}
                                 </a>
-                                <span class="duplicate-score">\${dup.similarity}% match</span>
+                                <span class="duplicate-score">\${escHtml(dup.similarity)}% match</span>
                             </div>
                             <div class="duplicate-meta">
-                                State: <strong>\${dup.state}</strong> | Updated: \${new Date(dup.updated_at).toLocaleDateString()}
+                                State: <strong>\${escHtml(dup.state)}</strong> | Updated: \${escHtml(new Date(dup.updated_at).toLocaleDateString())}
                             </div>
                         </div>
                     \`).join('');
@@ -1932,6 +1769,10 @@ class PullRequestCreationProvider {
                             const branches = await this.loadBranches(message.repository);
                             panel.webview.postMessage({ command: 'branchesLoaded', branches });
                             break;
+                        case 'loadDiff':
+                            const diff = await this.loadDiff(message.repository, message.base, message.head);
+                            panel.webview.postMessage({ command: 'diffLoaded', diff });
+                            break;
                         case 'createPR':
                             await this.createPullRequest(message.data);
                             panel.dispose();
@@ -1958,6 +1799,18 @@ class PullRequestCreationProvider {
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to load branches: ${error.message}`);
             return [];
+        }
+    }
+
+    async loadDiff(repository, base, head) {
+        try {
+            const [owner, repo] = repository.split('/');
+            const compare = await this.auth.makeRequest(
+                `/api/v1/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`
+            );
+            return { ok: true, data: compare };
+        } catch (error) {
+            return { ok: false, error: error.message };
         }
     }
 
@@ -1988,216 +1841,492 @@ class PullRequestCreationProvider {
         return `<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: var(--vscode-font-family);
-            color: var(--vscode-foreground);
-            background-color: var(--vscode-editor-background);
-            padding: 20px;
-            line-height: 1.6;
-        }
-        .form-group {
-            margin-bottom: 20px;
-        }
-        label {
-            display: block;
-            font-weight: 600;
-            margin-bottom: 6px;
-            font-size: 14px;
-        }
-        input, select, textarea {
-            width: 100%;
-            background-color: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            border-radius: 4px;
-            padding: 8px;
-            font-family: var(--vscode-font-family);
-            font-size: 13px;
-            box-sizing: border-box;
-        }
-        textarea {
-            min-height: 150px;
-            resize: vertical;
-        }
-        .hint {
-            font-size: 12px;
-            color: var(--vscode-descriptionForeground);
-            margin-top: 4px;
-        }
-        .button-group {
-            display: flex;
-            gap: 8px;
-            margin-top: 24px;
-        }
-        button {
-            background-color: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-        }
-        button:hover {
-            background-color: var(--vscode-button-hoverBackground);
-        }
-        button.secondary {
-            background-color: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        h1 {
-            font-size: 24px;
-            margin-top: 0;
-            margin-bottom: 24px;
-        }
-        .branch-selector {
-            display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            gap: 12px;
-            align-items: center;
-        }
-        .arrow {
-            font-size: 20px;
-            color: var(--vscode-descriptionForeground);
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root {
+  --bd:var(--vscode-panel-border);--bg:var(--vscode-editor-background);--fg:var(--vscode-foreground);--fg2:var(--vscode-descriptionForeground);
+  --inp-bg:var(--vscode-input-background);--inp-fg:var(--vscode-input-foreground);--inp-bd:var(--vscode-input-border,var(--bd));
+  --hdr-bg:var(--vscode-sideBarSectionHeader-background,rgba(128,128,128,.08));
+  --btn-bg:var(--vscode-button-background);--btn-fg:var(--vscode-button-foreground);--btn-hov:var(--vscode-button-hoverBackground);
+  --btn2-bg:var(--vscode-button-secondaryBackground);--btn2-fg:var(--vscode-button-secondaryForeground);
+  --link:var(--vscode-textLink-foreground);--code-bg:var(--vscode-textCodeBlock-background);
+}
+*{box-sizing:border-box}
+body{font-family:var(--vscode-font-family);font-size:14px;color:var(--fg);background:var(--bg);margin:0;padding:20px;line-height:1.6}
+h1{font-size:20px;font-weight:600;margin:0 0 20px}
+.form-group{margin-bottom:16px}
+label{display:block;font-weight:600;margin-bottom:6px;font-size:13px}
+input,select,textarea{width:100%;background:var(--inp-bg);color:var(--inp-fg);border:1px solid var(--inp-bd);border-radius:6px;padding:7px 10px;font-family:inherit;font-size:13px}
+textarea{min-height:120px;resize:vertical}
+.hint{font-size:11px;color:var(--fg2);margin-top:4px}
+.branch-row{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:start}
+.arrow{font-size:20px;color:var(--fg2);padding-top:4px;text-align:center}
+.btn-row{display:flex;gap:8px;margin-top:20px}
+.btn{padding:6px 16px;border-radius:6px;border:none;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+.btn-primary{background:var(--btn-bg);color:var(--btn-fg)}.btn-primary:hover{background:var(--btn-hov)}
+.btn-secondary{background:var(--btn2-bg);color:var(--btn2-fg)}
+
+/* Diff preview */
+#diffPreview{margin-top:24px;border-top:1px solid var(--bd);padding-top:16px;display:none}
+.diff-hdr{font-size:14px;font-weight:600;margin-bottom:12px}
+.diff-loading{display:flex;align-items:center;gap:8px;color:var(--fg2);font-size:13px}
+.spinner{width:14px;height:14px;border:2px solid var(--bd);border-top-color:var(--link);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.diff-error{color:var(--vscode-errorForeground);font-size:13px}
+.stats-bar{display:flex;gap:16px;font-size:13px;padding:10px 12px;background:var(--hdr-bg);border:1px solid var(--bd);border-radius:6px;margin-bottom:12px;flex-wrap:wrap}
+.stat{display:flex;align-items:center;gap:4px;color:var(--fg2)}.stat b{color:var(--fg)}
+.add{color:#3fb950}.del{color:#f85149}
+.section-hdr{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--fg2);margin:14px 0 6px}
+.commit-row{border:1px solid var(--bd);border-radius:6px;padding:8px 12px;margin-bottom:6px}
+.commit-msg{font-size:13px;font-weight:500;word-break:break-word;margin-bottom:3px}
+.commit-meta{font-size:11px;color:var(--fg2)}
+.commit-sha{font-family:var(--vscode-editor-font-family);background:var(--code-bg);padding:1px 5px;border-radius:4px}
+.file-item{border:1px solid var(--bd);border-radius:6px;margin-bottom:6px;overflow:hidden}
+.file-hdr{display:flex;align-items:center;padding:7px 12px;background:var(--hdr-bg);cursor:pointer;font-size:13px;gap:8px;user-select:none}
+.file-hdr:hover{background:var(--vscode-list-hoverBackground)}
+.file-name{flex:1;font-family:var(--vscode-editor-font-family);font-size:12px}
+.file-stats{display:flex;gap:8px;font-size:12px;font-family:var(--vscode-editor-font-family);white-space:nowrap}
+.file-diff{background:var(--code-bg);padding:6px;font-family:var(--vscode-editor-font-family);font-size:12px;line-height:1.5;overflow-x:auto;display:none}
+.diff-line{display:block;white-space:pre;padding:0 6px}
+.diff-line.addition{background:rgba(63,185,80,.15)}
+.diff-line.deletion{background:rgba(248,81,73,.15)}
+.diff-line.context{color:var(--fg2)}
+.diff-line.hunk{color:var(--link);font-weight:600}
+.chevron{transition:transform .15s;font-size:11px;color:var(--fg2)}
+.chevron.open{transform:rotate(90deg)}
+</style>
 </head>
 <body>
-    <h1>Create New Pull Request</h1>
-    <form id="prForm">
-        <div class="form-group">
-            <label for="repository">Repository *</label>
-            <select id="repository" required>
-                <option value="">Select a repository...</option>
-                ${repoOptions}
-            </select>
-        </div>
-        
-        <div class="form-group">
-            <label>Branches *</label>
-            <div class="branch-selector">
-                <div>
-                    <select id="base" required>
-                        <option value="">Base branch...</option>
-                    </select>
-                    <div class="hint">Target branch</div>
-                </div>
-                <div class="arrow">←</div>
-                <div>
-                    <select id="head" required>
-                        <option value="">Compare branch...</option>
-                    </select>
-                    <div class="hint">Your changes</div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="form-group">
-            <label for="title">Title *</label>
-            <input type="text" id="title" placeholder="Brief description of the changes" required>
-        </div>
-        
-        <div class="form-group">
-            <label for="body">Description</label>
-            <textarea id="body" placeholder="Describe the changes in detail..."></textarea>
-            <div class="hint">Supports Markdown formatting</div>
-        </div>
-        
-        <div class="form-group">
-            <label for="assignees">Assignees</label>
-            <input type="text" id="assignees" placeholder="username1, username2">
-            <div class="hint">Comma-separated list of usernames</div>
-        </div>
-        
-        <div class="button-group">
-            <button type="submit">Create Pull Request</button>
-            <button type="button" class="secondary" onclick="window.close()">Cancel</button>
-        </div>
-    </form>
+<h1>Create New Pull Request</h1>
+<form id="prForm">
+  <div class="form-group">
+    <label for="repository">Repository *</label>
+    <select id="repository" required>
+      <option value="">Select a repository...</option>
+      ${repoOptions}
+    </select>
+  </div>
 
-    <script>
-        const vscode = acquireVsCodeApi();
-        
-        document.getElementById('repository').addEventListener('change', async (e) => {
-            const repository = e.target.value;
-            if (repository) {
-                vscode.postMessage({ command: 'loadBranches', repository });
-            }
-        });
-        
-        window.addEventListener('message', event => {
-            const message = event.data;
-            if (message.command === 'branchesLoaded') {
-                const baseSelect = document.getElementById('base');
-                const headSelect = document.getElementById('head');
-                
-                baseSelect.innerHTML = '<option value="">Base branch...</option>';
-                headSelect.innerHTML = '<option value="">Compare branch...</option>';
-                
-                message.branches.forEach(branch => {
-                    baseSelect.innerHTML += \`<option value="\${branch}">\${branch}</option>\`;
-                    headSelect.innerHTML += \`<option value="\${branch}">\${branch}</option>\`;
-                });
-                
-                // Auto-select 'main' or 'master' as base if available
-                const defaultBases = ['main', 'master'];
-                for (const defaultBase of defaultBases) {
-                    if (message.branches.includes(defaultBase)) {
-                        baseSelect.value = defaultBase;
-                        break;
-                    }
-                }
-            }
-        });
-        
-        function showMessage(message) {
-            const modal = document.createElement('div');
-            modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;';
-            
-            const dialog = document.createElement('div');
-            dialog.style.cssText = 'background:var(--vscode-editor-background);border:1px solid var(--vscode-panel-border);border-radius:6px;padding:20px;max-width:400px;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-            
-            dialog.innerHTML = \`
-                <div style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--vscode-foreground);">Message</div>
-                <div style="font-size:14px;margin-bottom:20px;color:var(--vscode-descriptionForeground);">\${message}</div>
-                <div style="display:flex;gap:8px;justify-content:flex-end;">
-                    <button style="background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:500;" onclick="this.parentElement.parentElement.parentElement.remove();">OK</button>
-                </div>
-            \`;
-            
-            modal.appendChild(dialog);
-            document.body.appendChild(modal);
+  <div class="form-group">
+    <label>Branches *</label>
+    <div class="branch-row">
+      <div>
+        <select id="base" required>
+          <option value="">Base branch...</option>
+        </select>
+        <div class="hint">Target branch (merge into)</div>
+      </div>
+      <div class="arrow">←</div>
+      <div>
+        <select id="head" required>
+          <option value="">Compare branch...</option>
+        </select>
+        <div class="hint">Your changes</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label for="title">Title *</label>
+    <input type="text" id="title" placeholder="Brief description of the changes" required>
+  </div>
+
+  <div class="form-group">
+    <label for="body">Description</label>
+    <textarea id="body" placeholder="Describe the changes in detail..."></textarea>
+    <div class="hint">Supports Markdown formatting</div>
+  </div>
+
+  <div class="form-group">
+    <label for="assignees">Assignees</label>
+    <input type="text" id="assignees" placeholder="username1, username2">
+    <div class="hint">Comma-separated list of usernames</div>
+  </div>
+
+  <div class="btn-row">
+    <button type="submit" class="btn btn-primary">Create Pull Request</button>
+    <button type="button" class="btn btn-secondary" onclick="window.close()">Cancel</button>
+  </div>
+</form>
+
+<div id="diffPreview">
+  <div class="diff-hdr">Comparing branches</div>
+  <div id="diffContent"></div>
+</div>
+
+<script>
+const vscode = acquireVsCodeApi();
+let diffPending = null;
+
+function triggerDiff() {
+  const repo = document.getElementById('repository').value;
+  const base = document.getElementById('base').value;
+  const head = document.getElementById('head').value;
+  if (!repo || !base || !head || base === head) {
+    document.getElementById('diffPreview').style.display = 'none';
+    return;
+  }
+  const key = repo + '|' + base + '|' + head;
+  if (diffPending === key) return;
+  diffPending = key;
+  document.getElementById('diffPreview').style.display = 'block';
+  document.getElementById('diffContent').innerHTML =
+    '<div class="diff-loading"><div class="spinner"></div>Loading diff…</div>';
+  vscode.postMessage({ command: 'loadDiff', repository: repo, base, head });
+}
+
+document.getElementById('repository').addEventListener('change', e => {
+  if (e.target.value) {
+    vscode.postMessage({ command: 'loadBranches', repository: e.target.value });
+    document.getElementById('diffPreview').style.display = 'none';
+    diffPending = null;
+  }
+});
+document.getElementById('base').addEventListener('change', triggerDiff);
+document.getElementById('head').addEventListener('change', triggerDiff);
+
+window.addEventListener('message', event => {
+  const msg = event.data;
+  if (msg.command === 'branchesLoaded') {
+    const baseEl = document.getElementById('base');
+    const headEl = document.getElementById('head');
+    baseEl.innerHTML = '<option value="">Base branch...</option>';
+    headEl.innerHTML = '<option value="">Compare branch...</option>';
+    msg.branches.forEach(b => {
+      const o1 = document.createElement('option'); o1.value = o1.textContent = b; baseEl.appendChild(o1);
+      const o2 = document.createElement('option'); o2.value = o2.textContent = b; headEl.appendChild(o2);
+    });
+    for (const def of ['main', 'master']) {
+      if (msg.branches.includes(def)) { baseEl.value = def; break; }
+    }
+    diffPending = null;
+    triggerDiff();
+  }
+  if (msg.command === 'diffLoaded') {
+    renderDiff(msg.diff);
+  }
+});
+
+function renderDiff(result) {
+  const el = document.getElementById('diffContent');
+  if (!result.ok) {
+    el.innerHTML = '<div class="diff-error">Could not load diff: ' + escHtml(result.error) + '</div>';
+    return;
+  }
+  const d = result.data;
+  const commits = d.commits || [];
+  const files = d.files || [];
+  const totalAdd = d.diff_stats?.total_additions ?? files.reduce((s, f) => s + (f.additions || 0), 0);
+  const totalDel = d.diff_stats?.total_deletions ?? files.reduce((s, f) => s + (f.deletions || 0), 0);
+
+  // Auto-suggest title from first commit if title field is empty
+  if (!document.getElementById('title').value && commits.length > 0) {
+    const firstMsg = commits[0].commit?.message || commits[0].message || '';
+    document.getElementById('title').value = firstMsg.split('\\n')[0].trim();
+  }
+
+  let html = '<div class="stats-bar">';
+  html += '<span class="stat">Commits: <b>' + commits.length + '</b></span>';
+  html += '<span class="stat">Files changed: <b>' + files.length + '</b></span>';
+  html += '<span class="stat add">+' + totalAdd + '</span>';
+  html += '<span class="stat del">-' + totalDel + '</span>';
+  html += '</div>';
+
+  if (commits.length > 0) {
+    html += '<div class="section-hdr">Commits</div>';
+    for (const c of commits) {
+      const sha = (c.sha || '').substring(0, 7);
+      const msg = escHtml(c.commit?.message || c.message || 'No message');
+      const author = escHtml(c.commit?.author?.name || c.author?.login || 'Unknown');
+      const date = new Date(c.commit?.author?.date || c.created_at || '').toLocaleString();
+      html += '<div class="commit-row"><div class="commit-msg">' + msg.split('\\n')[0] + '</div>';
+      html += '<div class="commit-meta">' + author + ' · <span class="commit-sha">' + sha + '</span> · ' + date + '</div></div>';
+    }
+  }
+
+  if (files.length > 0) {
+    html += '<div class="section-hdr">Files changed (' + files.length + ')</div>';
+    files.forEach((f, i) => {
+      const name = escHtml(f.filename || f.name || '');
+      const adds = f.additions || 0;
+      const dels = f.deletions || 0;
+      html += '<div class="file-item">';
+      html += '<div class="file-hdr" onclick="toggleFile(' + i + ')">';
+      html += '<span class="chevron" id="chev-' + i + '">›</span>';
+      html += '<span class="file-name">' + name + '</span>';
+      html += '<span class="file-stats"><span class="add">+' + adds + '</span> <span class="del">-' + dels + '</span></span>';
+      html += '</div>';
+      html += '<div class="file-diff" id="fdiff-' + i + '">' + renderPatch(f.patch) + '</div>';
+      html += '</div>';
+    });
+  }
+
+  el.innerHTML = html;
+}
+
+function toggleFile(i) {
+  const diff = document.getElementById('fdiff-' + i);
+  const chev = document.getElementById('chev-' + i);
+  if (!diff) return;
+  const open = diff.style.display !== 'block';
+  diff.style.display = open ? 'block' : 'none';
+  if (chev) chev.className = 'chevron' + (open ? ' open' : '');
+}
+
+function renderPatch(patch) {
+  if (!patch) return '<span style="color:var(--fg2);padding:6px;display:block">No diff available</span>';
+  return patch.split('\\n').map(line => {
+    let cls = 'context';
+    if (line.startsWith('+')) cls = 'addition';
+    else if (line.startsWith('-')) cls = 'deletion';
+    else if (line.startsWith('@@')) cls = 'hunk';
+    return '<span class="diff-line ' + cls + '">' + escHtml(line) + '</span>';
+  }).join('');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+document.getElementById('prForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const repository = document.getElementById('repository').value;
+  const base = document.getElementById('base').value;
+  const head = document.getElementById('head').value;
+  const title = document.getElementById('title').value;
+  const body = document.getElementById('body').value;
+  const assignees = document.getElementById('assignees').value;
+  if (!repository || !base || !head || !title) return;
+  if (base === head) { alert('Base and compare branches must be different.'); return; }
+  vscode.postMessage({ command: 'createPR', data: { repository, base, head, title, body, assignees } });
+});
+</script>
+</body>
+</html>`;
+    }
+}
+
+class VersionInfoProvider {
+    constructor(auth, context) {
+        this.auth = auth;
+        this.context = context;
+        this._panel = null;
+    }
+
+    async show() {
+        const extensionVersion = this.context.extension.packageJSON.version;
+        const vsCodeVersion = vscode.version;
+
+        if (this._panel) {
+            this._panel.reveal();
+            this._refreshGiteaVersion();
+            return;
         }
-        
-        document.getElementById('prForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            
-            const repository = document.getElementById('repository').value;
-            const base = document.getElementById('base').value;
-            const head = document.getElementById('head').value;
-            const title = document.getElementById('title').value;
-            const body = document.getElementById('body').value;
-            const assignees = document.getElementById('assignees').value;
-            
-            if (!repository || !base || !head || !title) {
-                return;
+
+        this._panel = vscode.window.createWebviewPanel(
+            'gitea.versionInfo',
+            'Gitea: Version Info',
+            vscode.ViewColumn.Active,
+            { enableScripts: true }
+        );
+
+        this._panel.onDidDispose(() => { this._panel = null; });
+
+        this._panel.webview.onDidReceiveMessage(async (message) => {
+            if (message.command === 'copyToClipboard') {
+                await vscode.env.clipboard.writeText(message.text);
+                this._panel?.webview.postMessage({ command: 'copied' });
+            } else if (message.command === 'refreshGiteaVersion') {
+                this._refreshGiteaVersion();
             }
-            
-            if (base === head) {
-                showMessage('Base and head branches must be different');
-                return;
-            }
-            
-            vscode.postMessage({
-                command: 'createPR',
-                data: { repository, base, head, title, body, assignees }
-            });
         });
-    </script>
+
+        this._panel.webview.html = this._buildHtml(extensionVersion, vsCodeVersion);
+        this._refreshGiteaVersion();
+    }
+
+    async _refreshGiteaVersion() {
+        if (!this._panel) return;
+        try {
+            if (!this.auth.isConfigured()) {
+                this._panel.webview.postMessage({ command: 'setGiteaVersion', version: null, error: 'Not configured' });
+                return;
+            }
+            const response = await this.auth.makeRequest('/api/v1/version');
+            const version = (response && response.version) ? response.version : 'Unknown';
+            this._panel?.webview.postMessage({ command: 'setGiteaVersion', version, error: null });
+        } catch (error) {
+            this._panel?.webview.postMessage({ command: 'setGiteaVersion', version: null, error: error.message });
+        }
+    }
+
+    _buildHtml(extensionVersion, vsCodeVersion) {
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Version Info</title>
+<style>
+    body {
+        font-family: var(--vscode-font-family);
+        color: var(--vscode-foreground);
+        background: var(--vscode-editor-background);
+        padding: 24px;
+        max-width: 480px;
+        margin: 0 auto;
+    }
+    h2 {
+        font-size: 15px;
+        font-weight: 600;
+        margin: 0 0 20px 0;
+        color: var(--vscode-foreground);
+        border-bottom: 1px solid var(--vscode-panel-border);
+        padding-bottom: 10px;
+    }
+    .card {
+        background: var(--vscode-sideBar-background);
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 4px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .label {
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+    }
+    .value {
+        font-size: 16px;
+        font-weight: 600;
+        font-family: var(--vscode-editor-font-family, monospace);
+    }
+    .loading { color: var(--vscode-descriptionForeground); font-style: italic; font-size: 14px; font-weight: normal; }
+    .error-text { color: var(--vscode-errorForeground); font-size: 13px; font-weight: normal; }
+    .copy-btn {
+        background: var(--vscode-button-secondaryBackground);
+        color: var(--vscode-button-secondaryForeground);
+        border: none;
+        padding: 4px 12px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+        flex-shrink: 0;
+        margin-left: 12px;
+    }
+    .copy-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+    .copy-all-btn {
+        background: var(--vscode-button-background);
+        color: var(--vscode-button-foreground);
+        border: none;
+        padding: 8px 16px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 13px;
+        width: 100%;
+        margin-top: 8px;
+    }
+    .copy-all-btn:hover { background: var(--vscode-button-hoverBackground); }
+    .status {
+        text-align: center;
+        font-size: 11px;
+        color: var(--vscode-descriptionForeground);
+        margin-top: 8px;
+        min-height: 16px;
+    }
+    .refresh-btn {
+        background: none;
+        border: none;
+        color: var(--vscode-textLink-foreground);
+        cursor: pointer;
+        font-size: 12px;
+        padding: 0;
+        text-decoration: underline;
+    }
+</style>
+</head>
+<body>
+<h2>Version Information</h2>
+
+<div class="card">
+    <div>
+        <div class="label">Extension</div>
+        <div class="value" id="ext-ver">${extensionVersion}</div>
+    </div>
+    <button class="copy-btn" onclick="copyText('ext-ver')">Copy</button>
+</div>
+
+<div class="card">
+    <div>
+        <div class="label">VS Code</div>
+        <div class="value" id="vscode-ver">${vsCodeVersion}</div>
+    </div>
+    <button class="copy-btn" onclick="copyText('vscode-ver')">Copy</button>
+</div>
+
+<div class="card">
+    <div>
+        <div class="label">Gitea <button class="refresh-btn" onclick="requestRefresh()" id="refresh-btn">(refresh)</button></div>
+        <div class="value" id="gitea-ver"><span class="loading">Fetching...</span></div>
+    </div>
+    <button class="copy-btn" id="copy-gitea-btn" onclick="copyText('gitea-ver')" disabled>Copy</button>
+</div>
+
+<button class="copy-all-btn" id="copy-all-btn" onclick="copyAll()" disabled>Copy All to Clipboard</button>
+<div class="status" id="status"></div>
+
+<script>
+    const vscode = acquireVsCodeApi();
+    let giteaReady = false;
+
+    function copyText(id) {
+        const text = document.getElementById(id).textContent.trim();
+        vscode.postMessage({ command: 'copyToClipboard', text });
+    }
+
+    function copyAll() {
+        const ext = document.getElementById('ext-ver').textContent.trim();
+        const vs = document.getElementById('vscode-ver').textContent.trim();
+        const gitea = document.getElementById('gitea-ver').textContent.trim();
+        const text = 'Gitea Extension: ' + ext + '\\nVS Code: ' + vs + '\\nGitea Server: ' + gitea;
+        vscode.postMessage({ command: 'copyToClipboard', text });
+    }
+
+    function requestRefresh() {
+        document.getElementById('gitea-ver').innerHTML = '<span class="loading">Fetching...</span>';
+        document.getElementById('copy-gitea-btn').disabled = true;
+        document.getElementById('copy-all-btn').disabled = true;
+        document.getElementById('refresh-btn').disabled = true;
+        giteaReady = false;
+        vscode.postMessage({ command: 'refreshGiteaVersion' });
+    }
+
+    window.addEventListener('message', event => {
+        const msg = event.data;
+        if (msg.command === 'setGiteaVersion') {
+            const el = document.getElementById('gitea-ver');
+            if (msg.error) {
+                el.innerHTML = '<span class="error-text">Unavailable (' + msg.error + ')</span>';
+            } else {
+                el.textContent = msg.version;
+                giteaReady = true;
+                document.getElementById('copy-gitea-btn').disabled = false;
+                document.getElementById('copy-all-btn').disabled = false;
+            }
+            document.getElementById('refresh-btn').disabled = false;
+        } else if (msg.command === 'copied') {
+            const el = document.getElementById('status');
+            el.textContent = 'Copied to clipboard';
+            setTimeout(() => { el.textContent = ''; }, 2000);
+        }
+    });
+</script>
 </body>
 </html>`;
     }
@@ -2206,6 +2335,7 @@ class PullRequestCreationProvider {
 module.exports = {
     PullRequestWebviewProvider,
     IssueWebviewProvider,
-    PullRequestCreationProvider
+    PullRequestCreationProvider,
+    VersionInfoProvider
 };
 

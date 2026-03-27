@@ -272,6 +272,10 @@ class GiteaAuth {
 
             this.activeProfile = selected.profileName;
             const profile = this.profiles[this.activeProfile];
+            if (!profile) {
+                vscode.window.showErrorMessage(`Profile "${this.activeProfile}" not found.`);
+                return false;
+            }
             this.instanceUrl = profile.instanceUrl;
             this.authToken = profile.authToken;
 
@@ -434,7 +438,8 @@ class GiteaAuth {
                                 return;
                             }
                         } else {
-                            reject(new Error(`API request failed with status ${res.statusCode}: ${data}`));
+                            const errorBody = data.length > 200 ? data.substring(0, 200) + '…' : data;
+                            reject(new Error(`API request failed with status ${res.statusCode}: ${errorBody}`));
                         }
                     });
                 });

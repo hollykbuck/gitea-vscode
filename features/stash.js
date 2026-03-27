@@ -1,5 +1,5 @@
 const vscode = require('vscode');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -109,8 +109,8 @@ class StashManager {
             const branch = this.executeGitCommand('git rev-parse --abbrev-ref HEAD', cwd);
             const defaultMessage = message || `WIP on ${branch}`;
 
-            // Create stash
-            this.executeGitCommand(`git stash push -m "${defaultMessage}"`, cwd);
+            // Create stash (use execFileSync to safely pass the message as an argument)
+            execFileSync('git', ['stash', 'push', '-m', defaultMessage], { cwd, encoding: 'utf-8' });
 
             vscode.window.showInformationMessage(`Stash created: "${defaultMessage}"`);
             await this.listStashes();

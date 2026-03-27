@@ -99,6 +99,71 @@ async function promptForWorkspaceRepos(allRepos) {
     return null;
 }
 
+// ---------------------------------------------------------------------------
+// Shared workspace-repo filter with caching
+// Replaces the three duplicate filterRepositoriesByWorkspace methods.
+// Cache is keyed by workspace folder paths + repo IDs so it auto-invalidates
+// when either changes. Call invalidateWorkspaceCache() on explicit refresh.
+// ---------------------------------------------------------------------------
+let _wsCache = null;
+
+function invalidateWorkspaceCache() {
+    _wsCache = null;
+}
+
+function filterRepositoriesByWorkspace(allRepos) {
+    const workspaceFolders = vscode.workspace.workspaceFolders || [];
+    if (workspaceFolders.length === 0) return [];
+
+    const folderKey = workspaceFolders.map(f => f.uri.fsPath).sort().join('|');
+    const repoKey = allRepos.map(r => r.id).join(',');
+    const cacheKey = `${folderKey}::${repoKey}`;
+
+    if (_wsCache && _wsCache.key === cacheKey) {
+        return _wsCache.repos;
+    }
+
+    const scanDepth = getRepoScanDepth();
+
+    // Gather all local git repos across all workspace folders (once)
+    const allLocalGitPaths = [];
+    for (const folder of workspaceFolders) {
+        allLocalGitPaths.push(...findGitReposInDir(folder.uri.fsPath, scanDepth));
+    }
+
+    // Read each .git/config once and cache the content
+    const gitConfigContents = new Map();
+    for (const localPath of allLocalGitPaths) {
+        const cfgPath = resolveGitConfigPath(localPath);
+        if (cfgPath && fs.existsSync(cfgPath)) {
+            try {
+                gitConfigContents.set(localPath, fs.readFileSync(cfgPath, 'utf8').toLowerCase());
+            } catch { /* skip unreadable configs */ }
+        }
+    }
+
+    const loadedRepos = [];
+    for (const repo of allRepos) {
+        const cloneUrl = repo.clone_url.toLowerCase();
+        const htmlUrl = repo.html_url.toLowerCase();
+        const fullName = repo.full_name.toLowerCase();
+
+        for (const [, content] of gitConfigContents) {
+            if (content.includes(cloneUrl) || content.includes(htmlUrl) || content.includes(fullName)) {
+                if (!loadedRepos.some(r => r.id === repo.id)) loadedRepos.push(repo);
+                break;
+            }
+        }
+    }
+
+    _wsCache = { key: cacheKey, repos: loadedRepos };
+    return loadedRepos;
+}
+
+// ---------------------------------------------------------------------------
+// Tree item classes
+// ---------------------------------------------------------------------------
+
 class RepositoryTreeItem extends vscode.TreeItem {
     constructor(repository, collapsibleState) {
         super(repository.name, collapsibleState);
@@ -126,8 +191,34 @@ class IssueTreeItem extends vscode.TreeItem {
         super(`#${issue.number}: ${issue.title}`, vscode.TreeItemCollapsibleState.None);
 
         this.issue = issue;
-        this.description = `${repositoryName} • ${issue.user?.login}`;
-        this.tooltip = `${issue.title}\n\nRepository: ${repositoryName}\nAuthor: ${issue.user?.login}\nState: ${issue.state}`;
+
+        // Description: repo • author [→ assignee] [label1, label2 +N]
+        const assigneePart = issue.assignees?.length > 0
+            ? ` → ${issue.assignees[0].login}${issue.assignees.length > 1 ? ` +${issue.assignees.length - 1}` : ''}`
+            : '';
+        const labels = issue.labels || [];
+        const labelPart = labels.length > 0
+            ? ` [${labels.slice(0, 2).map(l => l.name).join(', ')}${labels.length > 2 ? ` +${labels.length - 2}` : ''}]`
+            : '';
+        this.description = `${repositoryName} • ${issue.user?.login || '?'}${assigneePart}${labelPart}`;
+
+        // Rich tooltip
+        const labelNames = labels.map(l => l.name).join(', ') || 'None';
+        const assigneeNames = issue.assignees?.map(a => a.login).join(', ') || 'Unassigned';
+        const milestone = issue.milestone?.title || 'None';
+        const updated = issue.updated_at ? new Date(issue.updated_at).toLocaleDateString() : '';
+        const tip = new vscode.MarkdownString(
+            `**#${issue.number}: ${issue.title}**\n\n` +
+            `Repository: \`${repositoryName}\`  \n` +
+            `Author: ${issue.user?.login || '?'}  \n` +
+            `State: **${issue.state}**  \n` +
+            `Assignees: ${assigneeNames}  \n` +
+            `Labels: ${labelNames}  \n` +
+            `Milestone: ${milestone}  \n` +
+            (updated ? `Updated: ${updated}` : '')
+        );
+        tip.supportThemeIcons = true;
+        this.tooltip = tip;
 
         this.iconPath = new vscode.ThemeIcon(
             issue.state === 'open' ? 'issue-opened' : 'issue-closed',
@@ -140,7 +231,10 @@ class IssueTreeItem extends vscode.TreeItem {
             title: issue.title,
             state: issue.state,
             repository: repositoryName,
-            htmlUrl: issue.html_url
+            htmlUrl: issue.html_url,
+            assignees: issue.assignees || [],
+            labels: labels,
+            milestone: issue.milestone || null
         };
     }
 }
@@ -150,14 +244,46 @@ class PullRequestTreeItem extends vscode.TreeItem {
         super(`#${pullRequest.number}: ${pullRequest.title}`, vscode.TreeItemCollapsibleState.None);
 
         this.pullRequest = pullRequest;
-        this.description = `${repositoryName} • ${pullRequest.user?.login}`;
-        this.tooltip = `${pullRequest.title}\n\nRepository: ${repositoryName}\nAuthor: ${pullRequest.user?.login}\nState: ${pullRequest.state}`;
 
-        this.iconPath = new vscode.ThemeIcon(
-            pullRequest.state === 'open' ? 'git-pull-request' : 'git-pull-request-closed',
-            pullRequest.state === 'open' ? new vscode.ThemeColor('pullRequests.open') : new vscode.ThemeColor('pullRequests.closed')
+        // Description: repo • author [→ assignee] [Draft]
+        const assigneePart = pullRequest.assignees?.length > 0
+            ? ` → ${pullRequest.assignees[0].login}`
+            : '';
+        const draftBadge = pullRequest.draft ? ' [Draft]' : '';
+        this.description = `${repositoryName} • ${pullRequest.user?.login || '?'}${assigneePart}${draftBadge}`;
+
+        // Rich tooltip with branch info
+        const assigneeNames = pullRequest.assignees?.map(a => a.login).join(', ') || 'Unassigned';
+        const headBranch = pullRequest.head?.ref || '?';
+        const baseBranch = pullRequest.base?.ref || '?';
+        const updated = pullRequest.updated_at ? new Date(pullRequest.updated_at).toLocaleDateString() : '';
+        const stateLabel = pullRequest.merged ? 'Merged' : (pullRequest.draft ? 'Draft' : pullRequest.state);
+        const tip = new vscode.MarkdownString(
+            `**#${pullRequest.number}: ${pullRequest.title}**\n\n` +
+            `Repository: \`${repositoryName}\`  \n` +
+            `Author: ${pullRequest.user?.login || '?'}  \n` +
+            `State: **${stateLabel}**  \n` +
+            `Branch: \`${headBranch}\` → \`${baseBranch}\`  \n` +
+            `Assignees: ${assigneeNames}  \n` +
+            (updated ? `Updated: ${updated}` : '')
         );
+        tip.supportThemeIcons = true;
+        this.tooltip = tip;
 
+        // Icon reflects merged / draft / open / closed
+        let iconName = 'git-pull-request';
+        let iconColor = new vscode.ThemeColor('pullRequests.open');
+        if (pullRequest.merged) {
+            iconName = 'git-merge';
+            iconColor = new vscode.ThemeColor('pullRequests.merged');
+        } else if (pullRequest.state === 'closed') {
+            iconName = 'git-pull-request-closed';
+            iconColor = new vscode.ThemeColor('pullRequests.closed');
+        } else if (pullRequest.draft) {
+            iconName = 'git-pull-request-draft';
+        }
+
+        this.iconPath = new vscode.ThemeIcon(iconName, iconColor);
         this.contextValue = 'pullRequest';
         this.metadata = {
             number: pullRequest.number,
@@ -165,10 +291,16 @@ class PullRequestTreeItem extends vscode.TreeItem {
             state: pullRequest.state,
             repository: repositoryName,
             htmlUrl: pullRequest.html_url,
-            draft: pullRequest.draft || false
+            draft: pullRequest.draft || false,
+            head: headBranch,
+            base: baseBranch
         };
     }
 }
+
+// ---------------------------------------------------------------------------
+// Providers
+// ---------------------------------------------------------------------------
 
 class RepositoryProvider {
     constructor(auth) {
@@ -180,7 +312,11 @@ class RepositoryProvider {
         this.lastQuery = '';
     }
 
-    refresh() { this._onDidChangeTreeData.fire(); }
+    refresh() {
+        invalidateWorkspaceCache();
+        this._onDidChangeTreeData.fire();
+    }
+
     getTreeItem(element) { return element; }
 
     async getChildren(element) {
@@ -192,7 +328,7 @@ class RepositoryProvider {
                 }
                 const repos = await this.auth.makeRequest('/api/v1/user/repos');
                 const allRepos = repos || [];
-                let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
+                let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
 
                 if (workspaceRepos.length === 0) {
                     if (shouldShowAllReposWhenNoWorkspace()) {
@@ -224,37 +360,6 @@ class RepositoryProvider {
     }
 
     resetSearch() { this.mode = 'all'; this.lastQuery = ''; this.repositories = []; }
-
-    filterRepositoriesByWorkspace(allRepos) {
-        const workspaceFolders = vscode.workspace.workspaceFolders || [];
-        if (workspaceFolders.length === 0) return [];
-        const scanDepth = getRepoScanDepth();
-        const loadedRepos = [];
-        for (const repo of allRepos) {
-            for (const folder of workspaceFolders) {
-                const folderPath = folder.uri.fsPath;
-                const gitRepoPaths = findGitReposInDir(folderPath, scanDepth);
-                for (const repoPath of gitRepoPaths) {
-                    const gitConfigPath = resolveGitConfigPath(repoPath);
-                    if (gitConfigPath && fs.existsSync(gitConfigPath)) {
-                        try {
-                            const gitConfig = fs.readFileSync(gitConfigPath, 'utf8');
-                            const cloneUrlNormalized = repo.clone_url.toLowerCase();
-                            const htmlUrlNormalized = repo.html_url.toLowerCase();
-                            if (gitConfig.toLowerCase().includes(cloneUrlNormalized) ||
-                                gitConfig.toLowerCase().includes(htmlUrlNormalized) ||
-                                gitConfig.toLowerCase().includes(repo.full_name.toLowerCase())) {
-                                if (!loadedRepos.some(r => r.id === repo.id)) loadedRepos.push(repo);
-                                break;
-                            }
-                        } catch (err) { console.error(`Failed to read git config for ${repoPath}:`, err); }
-                    }
-                }
-                if (loadedRepos.some(r => r.id === repo.id)) break;
-            }
-        }
-        return loadedRepos;
-    }
 }
 
 class IssueProvider {
@@ -265,9 +370,14 @@ class IssueProvider {
         this.issues = { openByRepo: {}, closedByRepo: {} };
         this.mode = 'all';
         this.lastQuery = '';
+        this._loading = false;
     }
 
-    refresh() { this._onDidChangeTreeData.fire(); }
+    refresh() {
+        invalidateWorkspaceCache();
+        this._onDidChangeTreeData.fire();
+    }
+
     getTreeItem(element) { return element; }
 
     async getChildren(element) {
@@ -275,45 +385,73 @@ class IssueProvider {
         try {
             if (!element) {
                 if (this.mode === 'search') return this.issues;
-                const repos = await this.auth.makeRequest('/api/v1/user/repos');
-                const allRepos = repos || [];
-                let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
 
-                if (workspaceRepos.length === 0) {
-                    if (shouldShowAllReposWhenNoWorkspace()) {
-                        workspaceRepos = allRepos;
-                    } else {
-                        const action = await promptForWorkspaceRepos(allRepos);
-                        if (action === 'showAll') workspaceRepos = allRepos;
+                // Deduplication guard: skip concurrent top-level loads
+                if (this._loading) return [];
+                this._loading = true;
+
+                try {
+                    const repos = await this.auth.makeRequest('/api/v1/user/repos');
+                    const allRepos = repos || [];
+                    let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
+
+                    if (workspaceRepos.length === 0) {
+                        if (shouldShowAllReposWhenNoWorkspace()) {
+                            workspaceRepos = allRepos;
+                        } else {
+                            const action = await promptForWorkspaceRepos(allRepos);
+                            if (action === 'showAll') workspaceRepos = allRepos;
+                        }
                     }
-                }
-                const openByRepo = {};
-                const closedByRepo = {};
-                for (const repo of workspaceRepos) {
-                    try {
-                        const openIssues = await this.auth.makeRequest(`/api/v1/repos/${repo.owner.login}/${repo.name}/issues?state=open`);
-                        const openItems = [];
-                        openIssues.forEach(issue => { if (!issue.pull_request) openItems.push(new IssueTreeItem(issue, repo.full_name)); });
-                        if (openItems.length > 0) openByRepo[repo.full_name] = openItems;
 
-                        const closedIssues = await this.auth.makeRequest(`/api/v1/repos/${repo.owner.login}/${repo.name}/issues?state=closed`);
-                        const closedItems = [];
-                        closedIssues.forEach(issue => { if (!issue.pull_request) closedItems.push(new IssueTreeItem(issue, repo.full_name)); });
+                    // Fetch open + closed issues for all repos in parallel
+                    const repoResults = await Promise.all(workspaceRepos.map(async repo => {
+                        try {
+                            const [openIssues, closedIssues] = await Promise.all([
+                                this.auth.makeRequest(
+                                    `/api/v1/repos/${repo.owner.login}/${repo.name}/issues?state=open&type=issues&limit=50`
+                                ),
+                                this.auth.makeRequest(
+                                    `/api/v1/repos/${repo.owner.login}/${repo.name}/issues?state=closed&type=issues&limit=50`
+                                )
+                            ]);
+                            return {
+                                repo,
+                                open: Array.isArray(openIssues) ? openIssues : [],
+                                closed: Array.isArray(closedIssues) ? closedIssues : []
+                            };
+                        } catch (err) {
+                            console.error(`Failed to fetch issues for ${repo.full_name}:`, err);
+                            return { repo, open: [], closed: [] };
+                        }
+                    }));
+
+                    const openByRepo = {};
+                    const closedByRepo = {};
+                    for (const { repo, open, closed } of repoResults) {
+                        const openItems = open.map(issue => new IssueTreeItem(issue, repo.full_name));
+                        const closedItems = closed.map(issue => new IssueTreeItem(issue, repo.full_name));
+                        if (openItems.length > 0) openByRepo[repo.full_name] = openItems;
                         if (closedItems.length > 0) closedByRepo[repo.full_name] = closedItems;
-                    } catch (err) { console.error(`Failed to fetch issues for ${repo.full_name}:`, err); }
+                    }
+
+                    this.issues = { openByRepo, closedByRepo };
+                    this.mode = 'all';
+
+                    const repoNames = new Set([...Object.keys(openByRepo), ...Object.keys(closedByRepo)]);
+                    return Array.from(repoNames).map(repoName => {
+                        const total = (openByRepo[repoName]?.length || 0) + (closedByRepo[repoName]?.length || 0);
+                        const repoGroup = new vscode.TreeItem(`${repoName} (${total})`, vscode.TreeItemCollapsibleState.Collapsed);
+                        repoGroup.contextValue = 'issueRepoGroup';
+                        repoGroup.iconPath = new vscode.ThemeIcon('repo');
+                        repoGroup.id = `repo:${repoName}`;
+                        return repoGroup;
+                    });
+                } finally {
+                    this._loading = false;
                 }
-                this.issues = { openByRepo, closedByRepo };
-                this.mode = 'all';
-                const repoNames = new Set([...Object.keys(openByRepo), ...Object.keys(closedByRepo)]);
-                return Array.from(repoNames).map(repoName => {
-                    const total = (openByRepo[repoName]?.length || 0) + (closedByRepo[repoName]?.length || 0);
-                    const repoGroup = new vscode.TreeItem(`${repoName} (${total})`, vscode.TreeItemCollapsibleState.Collapsed);
-                    repoGroup.contextValue = 'issueRepoGroup';
-                    repoGroup.iconPath = new vscode.ThemeIcon('repo');
-                    repoGroup.id = `repo:${repoName}`;
-                    return repoGroup;
-                });
             }
+
             if (element.contextValue === 'issueRepoGroup') {
                 const repoName = element.id.substring('repo:'.length);
                 const openCount = this.issues.openByRepo[repoName]?.length || 0;
@@ -328,14 +466,19 @@ class IssueProvider {
                 closedGroup.id = `repo:${repoName}:closed`;
                 return [openGroup, closedGroup];
             }
+
             if (element.contextValue === 'issueStateGroup') {
                 const parts = element.id.split(':');
+                if (parts.length < 3) return [];
                 const repoName = parts[1];
                 const state = parts[2];
                 const repoMap = state === 'open' ? this.issues.openByRepo : this.issues.closedByRepo;
                 return repoMap[repoName] || [];
             }
-        } catch (error) { vscode.window.showErrorMessage(`Failed to load issues: ${error.message}`); }
+        } catch (error) {
+            this._loading = false;
+            vscode.window.showErrorMessage(`Failed to load issues: ${error.message}`);
+        }
         return [];
     }
 
@@ -343,7 +486,7 @@ class IssueProvider {
         try {
             const repos = await this.auth.makeRequest('/api/v1/user/repos');
             const allRepos = repos || [];
-            let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
+            let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
 
             if (workspaceRepos.length === 0) {
                 if (shouldShowAllReposWhenNoWorkspace()) {
@@ -353,14 +496,21 @@ class IssueProvider {
                     if (action === 'showAll') workspaceRepos = allRepos;
                 }
             }
+
+            // Use server-side search with ?q= parameter across all repos in parallel
             const allIssues = [];
-            for (const repo of workspaceRepos) {
+            await Promise.all(workspaceRepos.map(async repo => {
                 try {
-                    const issues = await this.auth.makeRequest(`/api/v1/repos/${repo.owner.login}/${repo.name}/issues?state=all`);
-                    issues.forEach(issue => { if (!issue.pull_request && issue.title.toLowerCase().includes(query.toLowerCase())) allIssues.push(new IssueTreeItem(issue, repo.full_name)); });
+                    const issues = await this.auth.makeRequest(
+                        `/api/v1/repos/${repo.owner.login}/${repo.name}/issues?q=${encodeURIComponent(query)}&state=all&type=issues&limit=50`
+                    );
+                    if (Array.isArray(issues)) {
+                        issues.forEach(issue => allIssues.push(new IssueTreeItem(issue, repo.full_name)));
+                    }
                 } catch (err) { console.error(`Failed to search issues in ${repo.full_name}:`, err); }
-            }
-            this.issues = allIssues; // flat for search
+            }));
+
+            this.issues = allIssues;
             this.mode = 'search';
             this.lastQuery = query;
             this.refresh();
@@ -368,37 +518,6 @@ class IssueProvider {
     }
 
     resetSearch() { this.mode = 'all'; this.lastQuery = ''; this.issues = { openByRepo: {}, closedByRepo: {} }; }
-
-    filterRepositoriesByWorkspace(allRepos) {
-        const workspaceFolders = vscode.workspace.workspaceFolders || [];
-        if (workspaceFolders.length === 0) return [];
-        const scanDepth = getRepoScanDepth();
-        const loadedRepos = [];
-        for (const repo of allRepos) {
-            for (const folder of workspaceFolders) {
-                const folderPath = folder.uri.fsPath;
-                const gitRepoPaths = findGitReposInDir(folderPath, scanDepth);
-                for (const repoPath of gitRepoPaths) {
-                    const gitConfigPath = resolveGitConfigPath(repoPath);
-                    if (gitConfigPath && fs.existsSync(gitConfigPath)) {
-                        try {
-                            const gitConfig = fs.readFileSync(gitConfigPath, 'utf8');
-                            const cloneUrlNormalized = repo.clone_url.toLowerCase();
-                            const htmlUrlNormalized = repo.html_url.toLowerCase();
-                            if (gitConfig.toLowerCase().includes(cloneUrlNormalized) ||
-                                gitConfig.toLowerCase().includes(htmlUrlNormalized) ||
-                                gitConfig.toLowerCase().includes(repo.full_name.toLowerCase())) {
-                                if (!loadedRepos.some(r => r.id === repo.id)) loadedRepos.push(repo);
-                                break;
-                            }
-                        } catch (err) { console.error(`Failed to read git config for ${repoPath}:`, err); }
-                    }
-                }
-                if (loadedRepos.some(r => r.id === repo.id)) break;
-            }
-        }
-        return loadedRepos;
-    }
 }
 
 class PullRequestProvider {
@@ -409,9 +528,14 @@ class PullRequestProvider {
         this.pullRequests = { openByRepo: {}, closedByRepo: {}, wipByRepo: {} };
         this.mode = 'all';
         this.lastQuery = '';
+        this._loading = false;
     }
 
-    refresh() { this._onDidChangeTreeData.fire(); }
+    refresh() {
+        invalidateWorkspaceCache();
+        this._onDidChangeTreeData.fire();
+    }
+
     getTreeItem(element) { return element; }
 
     async getChildren(element) {
@@ -419,52 +543,89 @@ class PullRequestProvider {
         try {
             if (!element) {
                 if (this.mode === 'search') return this.pullRequests;
-                const repos = await this.auth.makeRequest('/api/v1/user/repos');
-                const allRepos = repos || [];
-                let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
 
-                if (workspaceRepos.length === 0) {
-                    if (shouldShowAllReposWhenNoWorkspace()) {
-                        workspaceRepos = allRepos;
-                    } else {
-                        const action = await promptForWorkspaceRepos(allRepos);
-                        if (action === 'showAll') workspaceRepos = allRepos;
+                // Deduplication guard
+                if (this._loading) return [];
+                this._loading = true;
+
+                try {
+                    const repos = await this.auth.makeRequest('/api/v1/user/repos');
+                    const allRepos = repos || [];
+                    let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
+
+                    if (workspaceRepos.length === 0) {
+                        if (shouldShowAllReposWhenNoWorkspace()) {
+                            workspaceRepos = allRepos;
+                        } else {
+                            const action = await promptForWorkspaceRepos(allRepos);
+                            if (action === 'showAll') workspaceRepos = allRepos;
+                        }
                     }
-                }
-                const openByRepo = {};
-                const closedByRepo = {};
-                const wipByRepo = {};
-                for (const repo of workspaceRepos) {
-                    try {
-                        const openPRs = await this.auth.makeRequest(`/api/v1/repos/${repo.owner.login}/${repo.name}/pulls?state=open`);
+
+                    // Fetch open + closed PRs for all repos in parallel
+                    const repoResults = await Promise.all(workspaceRepos.map(async repo => {
+                        try {
+                            const [openPRs, closedPRs] = await Promise.all([
+                                this.auth.makeRequest(
+                                    `/api/v1/repos/${repo.owner.login}/${repo.name}/pulls?state=open&limit=50`
+                                ),
+                                this.auth.makeRequest(
+                                    `/api/v1/repos/${repo.owner.login}/${repo.name}/pulls?state=closed&limit=50`
+                                )
+                            ]);
+                            return {
+                                repo,
+                                open: Array.isArray(openPRs) ? openPRs : [],
+                                closed: Array.isArray(closedPRs) ? closedPRs : []
+                            };
+                        } catch (err) {
+                            console.error(`Failed to fetch PRs for ${repo.full_name}:`, err);
+                            return { repo, open: [], closed: [] };
+                        }
+                    }));
+
+                    const openByRepo = {};
+                    const closedByRepo = {};
+                    const wipByRepo = {};
+
+                    for (const { repo, open, closed } of repoResults) {
                         const openItems = [];
                         const wipItems = [];
-                        openPRs.forEach(pr => {
-                            const isWIP = pr.draft || /^(wip|\[wip\]|work in progress|draft)/i.test(pr.title.toLowerCase());
+                        open.forEach(pr => {
+                            const isWIP = pr.draft || /^(wip|\[wip\]|work in progress|draft)/i.test(pr.title);
                             if (isWIP) wipItems.push(new PullRequestTreeItem(pr, repo.full_name));
                             else openItems.push(new PullRequestTreeItem(pr, repo.full_name));
                         });
+                        const closedItems = closed.map(pr => new PullRequestTreeItem(pr, repo.full_name));
+
                         if (openItems.length > 0) openByRepo[repo.full_name] = openItems;
                         if (wipItems.length > 0) wipByRepo[repo.full_name] = wipItems;
-
-                        const closedPRs = await this.auth.makeRequest(`/api/v1/repos/${repo.owner.login}/${repo.name}/pulls?state=closed`);
-                        const closedItems = [];
-                        closedPRs.forEach(pr => closedItems.push(new PullRequestTreeItem(pr, repo.full_name)));
                         if (closedItems.length > 0) closedByRepo[repo.full_name] = closedItems;
-                    } catch (err) { console.error(`Failed to fetch PRs for ${repo.full_name}:`, err); }
+                    }
+
+                    this.pullRequests = { openByRepo, closedByRepo, wipByRepo };
+                    this.mode = 'all';
+
+                    const repoNames = new Set([
+                        ...Object.keys(openByRepo),
+                        ...Object.keys(wipByRepo),
+                        ...Object.keys(closedByRepo)
+                    ]);
+                    return Array.from(repoNames).map(repoName => {
+                        const total = (openByRepo[repoName]?.length || 0) +
+                            (wipByRepo[repoName]?.length || 0) +
+                            (closedByRepo[repoName]?.length || 0);
+                        const repoGroup = new vscode.TreeItem(`${repoName} (${total})`, vscode.TreeItemCollapsibleState.Collapsed);
+                        repoGroup.contextValue = 'prRepoGroup';
+                        repoGroup.iconPath = new vscode.ThemeIcon('repo');
+                        repoGroup.id = `repo:${repoName}`;
+                        return repoGroup;
+                    });
+                } finally {
+                    this._loading = false;
                 }
-                this.pullRequests = { openByRepo, closedByRepo, wipByRepo };
-                this.mode = 'all';
-                const repoNames = new Set([...Object.keys(openByRepo), ...Object.keys(wipByRepo), ...Object.keys(closedByRepo)]);
-                return Array.from(repoNames).map(repoName => {
-                    const total = (openByRepo[repoName]?.length || 0) + (wipByRepo[repoName]?.length || 0) + (closedByRepo[repoName]?.length || 0);
-                    const repoGroup = new vscode.TreeItem(`${repoName} (${total})`, vscode.TreeItemCollapsibleState.Collapsed);
-                    repoGroup.contextValue = 'prRepoGroup';
-                    repoGroup.iconPath = new vscode.ThemeIcon('repo');
-                    repoGroup.id = `repo:${repoName}`;
-                    return repoGroup;
-                });
             }
+
             if (element.contextValue === 'prRepoGroup') {
                 const repoName = element.id.substring('repo:'.length);
                 const openCount = this.pullRequests.openByRepo[repoName]?.length || 0;
@@ -484,8 +645,10 @@ class PullRequestProvider {
                 closedGroup.id = `repo:${repoName}:closed`;
                 return [openGroup, wipGroup, closedGroup];
             }
+
             if (element.contextValue === 'prStateGroup') {
                 const parts = element.id.split(':');
+                if (parts.length < 3) return [];
                 const repoName = parts[1];
                 const state = parts[2];
                 let repoMap;
@@ -494,7 +657,10 @@ class PullRequestProvider {
                 else repoMap = this.pullRequests.closedByRepo;
                 return repoMap[repoName] || [];
             }
-        } catch (error) { vscode.window.showErrorMessage(`Failed to load pull requests: ${error.message}`); }
+        } catch (error) {
+            this._loading = false;
+            vscode.window.showErrorMessage(`Failed to load pull requests: ${error.message}`);
+        }
         return [];
     }
 
@@ -502,7 +668,7 @@ class PullRequestProvider {
         try {
             const repos = await this.auth.makeRequest('/api/v1/user/repos');
             const allRepos = repos || [];
-            let workspaceRepos = this.filterRepositoriesByWorkspace(allRepos);
+            let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
 
             if (workspaceRepos.length === 0) {
                 if (shouldShowAllReposWhenNoWorkspace()) {
@@ -512,14 +678,25 @@ class PullRequestProvider {
                     if (action === 'showAll') workspaceRepos = allRepos;
                 }
             }
+
+            // Server-side search across all repos in parallel
             const allPRs = [];
-            for (const repo of workspaceRepos) {
+            await Promise.all(workspaceRepos.map(async repo => {
                 try {
-                    const prs = await this.auth.makeRequest(`/api/v1/repos/${repo.owner.login}/${repo.name}/pulls?state=all`);
-                    prs.forEach(pr => { if (pr.title.toLowerCase().includes(query.toLowerCase())) allPRs.push(new PullRequestTreeItem(pr, repo.full_name)); });
+                    const prs = await this.auth.makeRequest(
+                        `/api/v1/repos/${repo.owner.login}/${repo.name}/pulls?q=${encodeURIComponent(query)}&state=all&limit=50`
+                    );
+                    if (Array.isArray(prs)) {
+                        prs.forEach(pr => {
+                            if (pr.title.toLowerCase().includes(query.toLowerCase())) {
+                                allPRs.push(new PullRequestTreeItem(pr, repo.full_name));
+                            }
+                        });
+                    }
                 } catch (err) { console.error(`Failed to search PRs in ${repo.full_name}:`, err); }
-            }
-            this.pullRequests = allPRs; // flat for search
+            }));
+
+            this.pullRequests = allPRs;
             this.mode = 'search';
             this.lastQuery = query;
             this.refresh();
@@ -527,37 +704,6 @@ class PullRequestProvider {
     }
 
     resetSearch() { this.mode = 'all'; this.lastQuery = ''; this.pullRequests = { openByRepo: {}, closedByRepo: {}, wipByRepo: {} }; }
-
-    filterRepositoriesByWorkspace(allRepos) {
-        const workspaceFolders = vscode.workspace.workspaceFolders || [];
-        if (workspaceFolders.length === 0) return [];
-        const scanDepth = getRepoScanDepth();
-        const loadedRepos = [];
-        for (const repo of allRepos) {
-            for (const folder of workspaceFolders) {
-                const folderPath = folder.uri.fsPath;
-                const gitRepoPaths = findGitReposInDir(folderPath, scanDepth);
-                for (const repoPath of gitRepoPaths) {
-                    const gitConfigPath = resolveGitConfigPath(repoPath);
-                    if (gitConfigPath && fs.existsSync(gitConfigPath)) {
-                        try {
-                            const gitConfig = fs.readFileSync(gitConfigPath, 'utf8');
-                            const cloneUrlNormalized = repo.clone_url.toLowerCase();
-                            const htmlUrlNormalized = repo.html_url.toLowerCase();
-                            if (gitConfig.toLowerCase().includes(cloneUrlNormalized) ||
-                                gitConfig.toLowerCase().includes(htmlUrlNormalized) ||
-                                gitConfig.toLowerCase().includes(repo.full_name.toLowerCase())) {
-                                if (!loadedRepos.some(r => r.id === repo.id)) loadedRepos.push(repo);
-                                break;
-                            }
-                        } catch (err) { console.error(`Failed to read git config for ${repoPath}:`, err); }
-                    }
-                }
-                if (loadedRepos.some(r => r.id === repo.id)) break;
-            }
-        }
-        return loadedRepos;
-    }
 }
 
 module.exports = {
@@ -566,5 +712,6 @@ module.exports = {
     PullRequestProvider,
     RepositoryTreeItem,
     IssueTreeItem,
-    PullRequestTreeItem
+    PullRequestTreeItem,
+    filterRepositoriesByWorkspace
 };
