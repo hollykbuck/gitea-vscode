@@ -9,6 +9,7 @@ const DeletedBranchesProvider = require('./features/deletedBranchesProvider');
 const StashManager = require('./features/stash');
 const { throttle } = require('./features/performanceOptimizer');
 const { showImportIssuesDialog } = require('./features/importIssues');
+const { syncProfileToGitea, restoreProfileFromGitea } = require('./features/profileSync');
 
 // Module-level reference so deactivate() can stop the monitoring timer
 let _notificationManager = null;
@@ -1058,11 +1059,33 @@ async function activate(context) {
         }
     });
 
+        // Sync VS Code profile to Gitea (issue #18)
+        const syncProfileCommand = vscode.commands.registerCommand('gitea.syncProfileToGitea', async () => {
+            try {
+                await syncProfileToGitea(auth);
+            } catch (error) {
+                console.error('Failed to sync profile:', error);
+                vscode.window.showErrorMessage(`Failed to sync profile: ${error.message}`);
+            }
+        });
+
+        // Restore VS Code profile from Gitea (issue #18)
+        const restoreProfileCommand = vscode.commands.registerCommand('gitea.restoreProfileFromGitea', async () => {
+            try {
+                await restoreProfileFromGitea(auth);
+            } catch (error) {
+                console.error('Failed to restore profile:', error);
+                vscode.window.showErrorMessage(`Failed to restore profile: ${error.message}`);
+            }
+        });
+
     // Add new commands to subscriptions
     context.subscriptions.push(
         viewIssueDetailsCommand,
         viewPullRequestDetailsCommand,
-        showVersionInfoCommand
+        showVersionInfoCommand,
+        syncProfileCommand,
+        restoreProfileCommand
     );
 
     // Auto-start notifications if enabled

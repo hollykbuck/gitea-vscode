@@ -2,7 +2,7 @@
     "name": "gitea",
     "displayName": "Gitea",
     "description": "Unofficial Gitea Extension for VS Code",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "publisher": "TerenceCarrera",
     "license": "GPL-3.0-only",
     "repository": {
@@ -195,6 +195,16 @@
                 "command": "gitea.showVersionInfo",
                 "title": "Gitea: Show Version Info",
                 "icon": "$(versions)"
+            },
+            {
+                "command": "gitea.syncProfileToGitea",
+                "title": "Gitea: Sync VS Code Profile to Gitea",
+                "icon": "$(cloud-upload)"
+            },
+            {
+                "command": "gitea.restoreProfileFromGitea",
+                "title": "Gitea: Restore VS Code Profile from Gitea",
+                "icon": "$(cloud-download)"
             }
         ],
         "viewsContainers": {

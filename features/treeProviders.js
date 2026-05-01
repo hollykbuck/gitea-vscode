@@ -31,6 +31,18 @@ function resolveGitConfigPath(repoPath) {
         if (!match || !match[1]) return null;
         const gitDir = match[1].trim();
         const resolvedGitDir = path.isAbsolute(gitDir) ? gitDir : path.resolve(repoPath, gitDir);
+
+        // Git worktrees store a `commondir` file pointing back to the main .git dir.
+        // The worktree-specific config does not have remote URLs; the main config does.
+        const commondirFile = path.join(resolvedGitDir, 'commondir');
+        if (fs.existsSync(commondirFile)) {
+            const commonRelDir = fs.readFileSync(commondirFile, 'utf8').trim();
+            const commonGitDir = path.isAbsolute(commonRelDir)
+                ? commonRelDir
+                : path.resolve(resolvedGitDir, commonRelDir);
+            return path.join(commonGitDir, 'config');
+        }
+
         return path.join(resolvedGitDir, 'config');
     } catch (error) {
         console.error(`Failed to resolve git config path for ${repoPath}:`, error);

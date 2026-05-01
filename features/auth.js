@@ -471,6 +471,49 @@ class GiteaAuth {
     }
 
     /**
+     * Fetch a URL with authentication and return a Buffer of the response body.
+     * Unlike makeRequest, this does NOT parse the response as JSON and works for
+     * any URL (not just /api/v1 endpoints), making it suitable for fetching
+     * binary assets such as issue attachments and embedded images.
+     *
+     * @param {string} url  Absolute URL to fetch
+     * @returns {Promise<Buffer>}
+     */
+    fetchBinary(url) {
+        return new Promise((resolve, reject) => {
+            if (!this.authToken) {
+                reject(new Error('Gitea not configured'));
+                return;
+            }
+            let parsedUrl;
+            try {
+                parsedUrl = new URL(url);
+            } catch (e) {
+                reject(e);
+                return;
+            }
+            const protocol = parsedUrl.protocol === 'https:' ? https : http;
+            const requestOptions = {
+                method: 'GET',
+                headers: { 'Authorization': `token ${this.authToken}` }
+            };
+            const req = protocol.request(parsedUrl, requestOptions, (res) => {
+                const chunks = [];
+                res.on('data', (chunk) => chunks.push(chunk));
+                res.on('end', () => {
+                    if (res.statusCode >= 200 && res.statusCode < 300) {
+                        resolve(Buffer.concat(chunks));
+                    } else {
+                        reject(new Error(`HTTP ${res.statusCode} fetching ${url}`));
+                    }
+                });
+            });
+            req.on('error', reject);
+            req.end();
+        });
+    }
+
+    /**
      * Check if authentication is configured
      */
     isConfigured() {
