@@ -1,5 +1,7 @@
 const vscode = require('vscode');
 const { marked } = require('marked');
+const https = require('https');
+const http = require('http');
 
 // Prevent raw HTML pass-through in markdown rendering (XSS mitigation)
 marked.use({
@@ -15,6 +17,74 @@ marked.use({
         }
     }
 });
+
+/**
+ * Finds all <img src="..."> tags in the given HTML whose src begins with the
+ * Gitea instance URL, fetches each image with authentication, and replaces the
+ * src attribute with an inline base64 data URI so the webview can display them
+ * without running into 403 errors or CSP restrictions.
+ *
+ * @param {import('./auth')} auth  GiteaAuth instance (needs instanceUrl & authToken)
+ * @param {string} html            Rendered HTML string
+ * @returns {Promise<string>}      HTML with Gitea image URLs replaced by data URIs
+ */
+async function embedGiteaImages(auth, html) {
+    if (!auth.instanceUrl || !auth.authToken) return html;
+
+    // Collect unique Gitea image URLs from <img src="..."> attributes.
+    const baseUrl = auth.instanceUrl.replace(/\/$/, '');
+    const imgSrcRegex = /<img([^>]*?)\ssrc="(https?:\/\/[^"]+)"([^>]*?)>/gi;
+    const urlsToFetch = new Set();
+    let m;
+    while ((m = imgSrcRegex.exec(html)) !== null) {
+        const src = m[2];
+        if (src.startsWith(baseUrl + '/') || src.startsWith(baseUrl + '?')) {
+            urlsToFetch.add(src);
+        }
+    }
+    if (urlsToFetch.size === 0) return html;
+
+    // Fetch all images concurrently, converting each to a data URI.
+    const dataUriMap = new Map();
+    await Promise.all([...urlsToFetch].map(async (src) => {
+        try {
+            const parsedUrl = new URL(src);
+            const protocol = parsedUrl.protocol === 'https:' ? https : http;
+            const buffer = await new Promise((resolve, reject) => {
+                const req = protocol.request(
+                    parsedUrl,
+                    { method: 'GET', headers: { 'Authorization': `token ${auth.authToken}` } },
+                    (res) => {
+                        const chunks = [];
+                        res.on('data', (chunk) => chunks.push(chunk));
+                        res.on('end', () => {
+                            if (res.statusCode >= 200 && res.statusCode < 300) {
+                                resolve(Buffer.concat(chunks));
+                            } else {
+                                reject(new Error(`HTTP ${res.statusCode}`));
+                            }
+                        });
+                    }
+                );
+                req.on('error', reject);
+                req.end();
+            });
+            // Detect MIME type from Content-Type or fall back to a safe default.
+            const contentType = 'image/png'; // safe fallback; most Gitea attachments are PNG/JPEG
+            dataUriMap.set(src, `data:${contentType};base64,${buffer.toString('base64')}`);
+        } catch (err) {
+            // If fetching fails, leave the original URL; the broken-image icon is
+            // preferable to crashing the whole webview render.
+            console.error(`embedGiteaImages: failed to fetch ${src}:`, err.message);
+        }
+    }));
+
+    // Replace all matched src URLs with their data URIs.
+    return html.replace(imgSrcRegex, (full, before, src, after) => {
+        const dataUri = dataUriMap.get(src);
+        return dataUri ? `<img${before} src="${dataUri}"${after}>` : full;
+    });
+}
 
 class PullRequestWebviewProvider {
     constructor(auth) {
@@ -162,7 +232,7 @@ class PullRequestWebviewProvider {
                 }
             );
 
-            panel.webview.html = this.getPullRequestHtml(panel.webview, prDetails, comments, reviews, files, commitsList, conflictingFiles, compareInfo);
+            panel.webview.html = await embedGiteaImages(this.auth, this.getPullRequestHtml(panel.webview, prDetails, comments, reviews, files, commitsList, conflictingFiles, compareInfo));
         } catch (error) {
             console.error('Failed to show pull request:', error);
             vscode.window.showErrorMessage(`Failed to show pull request: ${error.message}`);
@@ -669,6 +739,22 @@ function dlg(title, msg, cb) {
             .replace(/'/g, '&#039;');
     }
 
+    getContrastColor(hexColor) {
+        try {
+            if (!hexColor) return '#000000';
+            const hex = hexColor.replace('#', '');
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            if (isNaN(r) || isNaN(g) || isNaN(b)) return '#000000';
+            const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+            return brightness > 155 ? '#000000' : '#ffffff';
+        } catch (error) {
+            console.error('Failed to calculate contrast color:', error);
+            return '#000000';
+        }
+    }
+
     renderMarkdown(text) {
         if (!text) return '';
         try {
@@ -880,7 +966,7 @@ class IssueWebviewProvider {
                 }
             );
 
-            panel.webview.html = this.getIssueHtml(panel.webview, issueDetails, comments, currentUser);
+            panel.webview.html = await embedGiteaImages(this.auth, this.getIssueHtml(panel.webview, issueDetails, comments, currentUser));
         } catch (error) {
             console.error('Failed to show issue:', error);
             vscode.window.showErrorMessage(`Failed to show issue: ${error.message}`);
@@ -932,7 +1018,7 @@ class IssueWebviewProvider {
                 this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`)
             ]);
             panel.title = `Issue #${issueNumber}: ${issueDetails.title}`;
-            panel.webview.html = this.getIssueHtml(panel.webview, issueDetails, comments, currentUser);
+            panel.webview.html = await embedGiteaImages(this.auth, this.getIssueHtml(panel.webview, issueDetails, comments, currentUser));
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to refresh issue: ${error.message}`);
         }

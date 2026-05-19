@@ -59,9 +59,12 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 
 #### Additional Features
 
+- **VS Code Profile Sync**: Back up and restore your VS Code settings, keybindings, and extension list using any Gitea repository
+  - `Gitea: Sync VS Code Profile to Gitea` — uploads `settings.json`, `keybindings.json`, and installed extensions to a Gitea repo (creates `<you>/vscode-profile` automatically if needed)
+  - `Gitea: Restore VS Code Profile from Gitea` — downloads and applies profile files; offers to install any missing extensions
 - **Profile Management**: Configure and switch between multiple Gitea instances/accounts with profile management commands
 - **Stash Management**: Manage git stashes with support for creating, applying, popping, dropping, and viewing stashes
-- **Markdown Rendering**: PR and Issue descriptions and comments render with full markdown formatting
+- **Markdown Rendering**: PR and Issue descriptions and comments render with full markdown formatting, including images fetched securely via the authenticated API
 - **Inline Code Review**: View file changes directly in PR detail panels with syntax-highlighted diffs
 
 ### Getting Started
@@ -83,7 +86,7 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 - WIP detection uses `draft` flag or common title prefixes (wip, [wip], work in progress, draft).
 - Searches return flat lists for quick navigation; clear search to return to grouped view.
 - If no workspace repositories are detected, the extension can prompt to open a folder, clone a repo, or show all repos.
-- Worktree and submodule `.git` files are supported when matching repositories.
+- Worktree and submodule `.git` files are supported when matching repositories. Worktree directories correctly resolve to the main repository's `config` via the `commondir` file so remote URLs are found.
 
 ### Commands
 
@@ -104,6 +107,8 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 - Open Pull Request in Browser (`gitea.openPullRequestInBrowser`)
 - View Issue Details (`gitea.viewIssueDetails`): open rich detail panel with comments and actions.
 - View Pull Request Details (`gitea.viewPullRequestDetails`): open rich detail panel with reviews, comments, and merge actions.
+- Gitea: Sync VS Code Profile to Gitea (`gitea.syncProfileToGitea`): upload settings, keybindings, and extensions to a Gitea repository.
+- Gitea: Restore VS Code Profile from Gitea (`gitea.restoreProfileFromGitea`): download and apply a previously synced VS Code profile.
 
 ### Settings
 
@@ -116,6 +121,7 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 - `gitea.repoScanDepth`: Maximum folder depth to scan for git repositories in the workspace.
 - `gitea.profiles`: Configure multiple Gitea profiles with instance URL, token, and alias.
 - `gitea.activeProfile`: Set the active profile by its alias/name.
+- `gitea.profileSyncRepo`: Default Gitea repository (owner/repo) used for VS Code profile sync (defaults to `<currentUser>/vscode-profile`).
 
 ### Performance behavior
 

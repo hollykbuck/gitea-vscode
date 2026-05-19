@@ -10,6 +10,24 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Advanced PR filtering and sorting.
 - Branch rename operations.
 
+## [0.2.1] - 2026-05-02
+
+### Added
+
+- **VS Code profile sync to Gitea** (issue [#18](https://github.com/terence-carrera/gitea-vscode/issues/18)): sync and restore your VS Code profile (settings, keybindings, extensions) using any Gitea repository as a backend.
+  - `gitea.syncProfileToGitea`: uploads `settings.json`, `keybindings.json`, and an `extensions.json` snapshot to a user-chosen Gitea repository (defaults to `<you>/vscode-profile`; creates it as private if missing).
+  - `gitea.restoreProfileFromGitea`: downloads profile files from Gitea, writes settings and keybindings back to the VS Code user-data directory, and offers to install any missing extensions.
+  - Repository picker with free-text fallback so you can target any owned repo.
+  - Progress notifications during upload/download and a "Reload Window" prompt after restore.
+
+### Fixed
+
+- **Images in issue / PR webviews returning HTTP 403** (issue [#19](https://github.com/terence-carrera/gitea-vscode/issues/19)): Gitea attachment and embedded images now render correctly.
+  - Added `embedGiteaImages()` helper that fetches each Gitea-hosted `<img>` with the authentication token server-side and replaces the `src` attribute with an inline `data:` URI before the HTML is handed to the webview.
+  - Applied to all three webview HTML render paths: `showPullRequest`, `showIssue`, and `_refreshPanel`.
+- **Git worktree directories not recognized as repositories** (issue [#17](https://github.com/terence-carrera/gitea-vscode/issues/17)): the workspace repository scanner now resolves `commondir` in worktree git dirs so the main repo's remote configuration is found correctly.
+- **`getContrastColor is not a function`** when opening a pull request that has labels: added the missing `getContrastColor` method to `PullRequestWebviewProvider` (it previously only existed in `IssueWebviewProvider`).
+
 ## [0.1.8] - 2026-01-21
 
 ### Fixed
