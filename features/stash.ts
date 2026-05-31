@@ -328,4 +328,4 @@ export default class StashManager {
     }
 }
 
-module.exports = StashManager;
+

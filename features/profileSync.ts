@@ -431,4 +431,4 @@ export async function restoreProfileFromGitea(auth: any) {
     });
 }
 
-module.exports = { syncProfileToGitea, restoreProfileFromGitea };
+
