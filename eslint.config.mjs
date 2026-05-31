@@ -1,30 +1,28 @@
 import globals from "globals";
+import tseslint from "typescript-eslint";
 
-export default [
+export default tseslint.config(
     {
         ignores: ["node_modules/**", "out/**", "dist/**", ".vscode-test/**"]
     },
+    ...tseslint.configs.recommended,
     {
-        files: ["**/*.js"],
+        files: ["**/*.ts"],
         languageOptions: {
             globals: {
-                ...globals.commonjs,
                 ...globals.node,
                 ...globals.mocha,
             },
-
-            ecmaVersion: 2022,
-            sourceType: "module",
+            parserOptions: {
+                project: true,
+                tsconfigRootDir: import.meta.dirname,
+            },
         },
-
         rules: {
+            "@typescript-eslint/no-explicit-any": "off",
+            "@typescript-eslint/no-unused-vars": "warn",
             "no-const-assign": "warn",
-            "no-this-before-super": "warn",
-            "no-undef": "warn",
-            "no-unreachable": "warn",
-            "no-unused-vars": "warn",
-            "constructor-super": "warn",
-            "valid-typeof": "warn",
+            "no-undef": "off", // TS handles this
         },
     }
-];
+);

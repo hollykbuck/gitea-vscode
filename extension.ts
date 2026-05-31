@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as os from 'os';
+import * as fs from 'fs';
+import * as path from 'path';
 import GiteaAuth from './features/auth';
 import { RepositoryProvider, IssueProvider, PullRequestProvider } from './features/treeProviders';
 import { PullRequestWebviewProvider, IssueWebviewProvider, PullRequestCreationProvider, VersionInfoProvider } from './features/webviewProviders';
@@ -450,11 +453,10 @@ export async function activate(context: vscode.ExtensionContext) {
         try {
             const repo = item.repository;
             const config = vscode.workspace.getConfiguration('gitea');
-            const defaultPath = config.get('defaultRepoStartingPath') || require('path').join(require('os').homedir(), 'source', 'repos');
-            const repoPath = vscode.Uri.file(require('path').join(defaultPath, repo.full_name));
+            const defaultPath = config.get('defaultRepoStartingPath') || path.join(os.homedir(), 'source', 'repos');
+            const repoPath = vscode.Uri.file(path.join(defaultPath, repo.full_name));
 
             // Check if repository already exists locally
-            const fs = require('fs');
             const pathExists = fs.existsSync(repoPath.fsPath);
 
             if (!pathExists) {
@@ -467,7 +469,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 if (result !== 'Clone & Open') return;
 
                 // Create parent directory if needed
-                const parentDir = require('path').dirname(repoPath.fsPath);
+                const parentDir = path.dirname(repoPath.fsPath);
                 if (!fs.existsSync(parentDir)) {
                     fs.mkdirSync(parentDir, { recursive: true });
                 }
