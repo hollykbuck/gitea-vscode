@@ -1,23 +1,19 @@
-// The module 'vscode' contains the VS Code extensibility API
-const vscode = require('vscode');
-const GiteaAuth = require('./features/auth');
-const { RepositoryProvider, IssueProvider, PullRequestProvider, filterRepositoriesByWorkspace } = require('./features/treeProviders');
-const { PullRequestWebviewProvider, IssueWebviewProvider, PullRequestCreationProvider, VersionInfoProvider } = require('./features/webviewProviders');
-const NotificationManager = require('./features/notifications');
-const BranchManager = require('./features/branches');
-const DeletedBranchesProvider = require('./features/deletedBranchesProvider');
-const StashManager = require('./features/stash');
-const { throttle } = require('./features/performanceOptimizer');
-const { showImportIssuesDialog } = require('./features/importIssues');
-const { syncProfileToGitea, restoreProfileFromGitea } = require('./features/profileSync');
+import * as vscode from 'vscode';
+import GiteaAuth from './features/auth';
+import { RepositoryProvider, IssueProvider, PullRequestProvider } from './features/treeProviders';
+import { PullRequestWebviewProvider, IssueWebviewProvider, PullRequestCreationProvider, VersionInfoProvider } from './features/webviewProviders';
+import NotificationManager from './features/notifications';
+import BranchManager from './features/branches';
+import DeletedBranchesProvider from './features/deletedBranchesProvider';
+import StashManager from './features/stash';
+import { throttle } from './features/performanceOptimizer';
+import { showImportIssuesDialog } from './features/importIssues';
+import { syncProfileToGitea, restoreProfileFromGitea } from './features/profileSync';
 
 // Module-level reference so deactivate() can stop the monitoring timer
-let _notificationManager = null;
+let _notificationManager: NotificationManager | null = null;
 
-/**
- * @param {vscode.ExtensionContext} context
- */
-async function activate(context) {
+export async function activate(context: vscode.ExtensionContext) {
     try {
         // Initialize authentication
         const auth = new GiteaAuth();
@@ -1136,14 +1132,10 @@ async function activate(context) {
 }
 
 // This method is called when your extension is deactivated
-function deactivate() {
+export function deactivate() {
     if (_notificationManager) {
         _notificationManager.stopMonitoring();
         _notificationManager = null;
     }
 }
 
-module.exports = {
-    activate,
-    deactivate
-}

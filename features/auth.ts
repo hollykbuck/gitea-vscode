@@ -1,9 +1,15 @@
-const vscode = require('vscode');
-const https = require('https');
-const http = require('http');
-const { CacheManager } = require('./performanceOptimizer');
+import * as vscode from 'vscode';
+import * as https from 'https';
+import * as http from 'http';
+import { CacheManager } from './performanceOptimizer';
 
-class GiteaAuth {
+export default class GiteaAuth {
+    instanceUrl: string | null;
+    authToken: string | null;
+    activeProfile: string | null;
+    profiles: Record<string, any>;
+    cache: CacheManager;
+
     constructor() {
         this.instanceUrl = null;
         this.authToken = null;
@@ -521,4 +527,4 @@ class GiteaAuth {
     }
 }
 
-module.exports = GiteaAuth;
+

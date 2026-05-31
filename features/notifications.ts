@@ -1,7 +1,14 @@
-const vscode = require('vscode');
+import * as vscode from 'vscode';
+import GiteaAuth from './auth';
 
-class NotificationManager {
-    constructor(auth) {
+export default class NotificationManager {
+    auth: GiteaAuth;
+    isMonitoring: boolean;
+    pollInterval: number;
+    monitoringTimers: Record<string, NodeJS.Timeout>;
+    activityCache: Record<string, any>;
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
         this.isMonitoring = false;
         this.pollInterval = 60000; // 60 seconds
@@ -354,4 +361,4 @@ class NotificationManager {
     }
 }
 
-module.exports = NotificationManager;
+

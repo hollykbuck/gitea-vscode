@@ -17,7 +17,7 @@
     "activationEvents": [
         "onStartupFinished"
     ],
-    "main": "./extension.js",
+    "main": "./dist/extension.js",
     "icon": "media/gitea-logo-marketplace.png",
     "contributes": {
         "commands": [
@@ -205,6 +205,11 @@
                 "command": "gitea.restoreProfileFromGitea",
                 "title": "Gitea: Restore VS Code Profile from Gitea",
                 "icon": "$(cloud-download)"
+            },
+            {
+                "command": "gitea.openContainerFs",
+                "title": "Gitea: Open Container File System",
+                "category": "Gitea"
             }
         ],
         "viewsContainers": {
@@ -437,20 +442,41 @@
                     "maximum": 365
                 }
             }
-        }
+        },
+        "debuggers": [
+            {
+                "type": "gitea-actions-debug",
+                "label": "Gitea Actions Debugger",
+                "languages": [
+                    "yaml"
+                ],
+                "initialConfigurations": [
+                    {
+                        "type": "gitea-actions-debug",
+                        "request": "attach",
+                        "name": "Attach to Gitea Runner",
+                        "port": 4711
+                    }
+                ]
+            }
+        ]
     },
     "scripts": {
+        "vscode:prepublish": "node esbuild.mjs --production",
+        "compile": "node esbuild.mjs",
+        "watch": "node esbuild.mjs --watch",
         "lint": "eslint .",
-        "pretest": "npm run lint",
+        "pretest": "npm run compile && npm run lint",
         "test": "vscode-test"
     },
     "devDependencies": {
-        "@types/vscode": "^1.90.0",
         "@types/mocha": "^10.0.10",
         "@types/node": "22.x",
-        "eslint": "^9.39.1",
+        "@types/vscode": "^1.90.0",
         "@vscode/test-cli": "^0.0.12",
-        "@vscode/test-electron": "^2.5.2"
+        "@vscode/test-electron": "^2.5.2",
+        "esbuild": "^0.28.0",
+        "eslint": "^9.39.1"
     },
     "dependencies": {
         "marked": "^12.0.0",

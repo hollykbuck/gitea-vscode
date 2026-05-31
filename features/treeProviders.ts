@@ -1,22 +1,23 @@
-const vscode = require('vscode');
-const path = require('path');
-const fs = require('fs');
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
+import GiteaAuth from './auth';
 
 let hasPromptedNoWorkspaceRepos = false;
 
-function getRepoScanDepth() {
+function getRepoScanDepth(): number {
     const config = vscode.workspace.getConfiguration('gitea');
     const depth = Number(config.get('repoScanDepth', 2));
     if (Number.isFinite(depth) && depth >= 0) return Math.floor(depth);
     return 2;
 }
 
-function shouldShowAllReposWhenNoWorkspace() {
+function shouldShowAllReposWhenNoWorkspace(): boolean {
     const config = vscode.workspace.getConfiguration('gitea');
     return !!config.get('showAllReposWhenNoWorkspace', false);
 }
 
-function resolveGitConfigPath(repoPath) {
+function resolveGitConfigPath(repoPath: string): string | null {
     const gitEntryPath = path.join(repoPath, '.git');
     if (!fs.existsSync(gitEntryPath)) return null;
 
@@ -314,11 +315,16 @@ class PullRequestTreeItem extends vscode.TreeItem {
 // Providers
 // ---------------------------------------------------------------------------
 
-class RepositoryProvider {
-    constructor(auth) {
+export class RepositoryProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+    auth: GiteaAuth;
+    private _onDidChangeTreeData: vscode.EventEmitter<vscode.TreeItem | undefined | null | void> = new vscode.EventEmitter();
+    readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+    repositories: any[];
+    mode: string;
+    lastQuery: string;
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
-        this._onDidChangeTreeData = new vscode.EventEmitter();
-        this.onDidChangeTreeData = this._onDidChangeTreeData.event;
         this.repositories = [];
         this.mode = 'all';
         this.lastQuery = '';
@@ -374,11 +380,17 @@ class RepositoryProvider {
     resetSearch() { this.mode = 'all'; this.lastQuery = ''; this.repositories = []; }
 }
 
-class IssueProvider {
-    constructor(auth) {
+export class IssueProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+    auth: GiteaAuth;
+    private _onDidChangeTreeData: vscode.EventEmitter<vscode.TreeItem | undefined | null | void> = new vscode.EventEmitter();
+    readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+    issues: any;
+    mode: string;
+    lastQuery: string;
+    private _loading: boolean;
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
-        this._onDidChangeTreeData = new vscode.EventEmitter();
-        this.onDidChangeTreeData = this._onDidChangeTreeData.event;
         this.issues = { openByRepo: {}, closedByRepo: {} };
         this.mode = 'all';
         this.lastQuery = '';
@@ -532,11 +544,17 @@ class IssueProvider {
     resetSearch() { this.mode = 'all'; this.lastQuery = ''; this.issues = { openByRepo: {}, closedByRepo: {} }; }
 }
 
-class PullRequestProvider {
-    constructor(auth) {
+export class PullRequestProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+    auth: GiteaAuth;
+    private _onDidChangeTreeData: vscode.EventEmitter<vscode.TreeItem | undefined | null | void> = new vscode.EventEmitter();
+    readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+    pullRequests: any;
+    mode: string;
+    lastQuery: string;
+    private _loading: boolean;
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
-        this._onDidChangeTreeData = new vscode.EventEmitter();
-        this.onDidChangeTreeData = this._onDidChangeTreeData.event;
         this.pullRequests = { openByRepo: {}, closedByRepo: {}, wipByRepo: {} };
         this.mode = 'all';
         this.lastQuery = '';
@@ -718,12 +736,4 @@ class PullRequestProvider {
     resetSearch() { this.mode = 'all'; this.lastQuery = ''; this.pullRequests = { openByRepo: {}, closedByRepo: {}, wipByRepo: {} }; }
 }
 
-module.exports = {
-    RepositoryProvider,
-    IssueProvider,
-    PullRequestProvider,
-    RepositoryTreeItem,
-    IssueTreeItem,
-    PullRequestTreeItem,
-    filterRepositoriesByWorkspace
-};
+

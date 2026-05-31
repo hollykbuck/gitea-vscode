@@ -113,4 +113,4 @@ class DeletedBranchesProvider {
     }
 }
 
-module.exports = DeletedBranchesProvider;
+

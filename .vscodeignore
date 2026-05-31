@@ -8,3 +8,12 @@ vsc-extension-quickstart.md
 **/*.map
 **/eslint.config.mjs
 **/.vscode-test.*
+esbuild.mjs
+
+# Exclude source code
+features/**
+src/**
+extension.js
+
+# Include bundled output
+!dist/extension.js

@@ -2,7 +2,10 @@
  * Simple cache manager for API responses
  * Implements TTL-based cache invalidation
  */
-class CacheManager {
+export class CacheManager {
+    private cache: Map<string, { value: any, timestamp: number }>;
+    private ttl: number;
+
     constructor(ttl = 10000) { // 10 seconds default
         this.cache = new Map();
         this.ttl = ttl;
@@ -11,7 +14,7 @@ class CacheManager {
     /**
      * Get cached value if valid
      */
-    get(key) {
+    get(key: string) {
         const item = this.cache.get(key);
         if (!item) return null;
 
@@ -27,7 +30,7 @@ class CacheManager {
     /**
      * Set cache value
      */
-    set(key, value) {
+    set(key: string, value: any) {
         this.cache.set(key, {
             value,
             timestamp: Date.now()
@@ -37,7 +40,7 @@ class CacheManager {
     /**
      * Clear specific key or all cache
      */
-    clear(key = null) {
+    clear(key: string | null = null) {
         if (key) {
             this.cache.delete(key);
         } else {
@@ -61,14 +64,14 @@ class CacheManager {
 /**
  * Debounce utility for throttling frequent calls
  */
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
+export function debounce(func: Function, wait: number) {
+    let timeout: NodeJS.Timeout | null = null;
+    return function executedFunction(...args: any[]) {
         const later = () => {
-            clearTimeout(timeout);
+            if (timeout) clearTimeout(timeout);
             func(...args);
         };
-        clearTimeout(timeout);
+        if (timeout) clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
 }
@@ -76,9 +79,9 @@ function debounce(func, wait) {
 /**
  * Throttle utility for rate-limiting operations
  */
-function throttle(func, limit) {
-    let inThrottle;
-    return function (...args) {
+export function throttle(func: Function, limit: number) {
+    let inThrottle: boolean;
+    return function (this: any, ...args: any[]) {
         if (!inThrottle) {
             func.apply(this, args);
             inThrottle = true;
@@ -86,9 +89,3 @@ function throttle(func, limit) {
         }
     };
 }
-
-module.exports = {
-    CacheManager,
-    debounce,
-    throttle
-};
