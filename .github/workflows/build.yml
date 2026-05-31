@@ -19,7 +19,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [20.x]
+        node-version: [24.x]
 
     steps:
       - name: Checkout Code
@@ -45,8 +45,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb libxkbcommon-x11-0 libxkbcommon0
 
+      - name: Start Mock Server
+        run: npm run mock &
+        # Give Prism a few seconds to start and parse the 20k+ line yaml
+        
       - name: Run Tests with xvfb
-        run: xvfb-run -a npm test
+        run: |
+          # Wait for mock server to be ready
+          npx wait-on http://127.0.0.1:4010/api/v1/version -t 30000
+          xvfb-run -a npm test
         env:
           NODE_OPTIONS: --max-old-space-size=4096
           DISPLAY: :99

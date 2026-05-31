@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import GiteaAuth from '../features/auth';
+import GiteaAuth from '../features/auth.ts';
 
 suite('Gitea API Mock Integration Tests', () => {
     let auth: GiteaAuth;
