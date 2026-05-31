@@ -1,0 +1,65 @@
+name: CI/CD - Build and Test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  build-and-test:
+    name: Build, Lint and Test
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.JS ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Compile (TypeScript + esbuild)
+        run: npm run compile
+
+      - name: Setup Display Server (xvfb)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libxkbcommon-x11-0 libxkbcommon0
+
+      - name: Run Tests with xvfb
+        run: xvfb-run -a npm test
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+          DISPLAY: :99
+
+      - name: Package Extension (.vsix)
+        # Use vsce to package the extension without publishing
+        run: npx @vscode/vsce package --out gitea-vscode.vsix
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitea-vscode-extension
+          path: |
+            gitea-vscode.vsix
+            dist/
+          retention-days: 7
