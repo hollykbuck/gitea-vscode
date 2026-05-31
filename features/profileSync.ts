@@ -206,7 +206,7 @@ async function readRepoFile(auth, owner, repo, filePath) {
  *
  * @param {import('./auth')} auth
  */
-async function syncProfileToGitea(auth) {
+export async function syncProfileToGitea(auth: any) {
     if (!auth.isConfigured()) {
         vscode.window.showWarningMessage('Gitea is not configured. Please run "Gitea: Configure Instance" first.');
         return;

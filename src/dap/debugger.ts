@@ -1,8 +1,11 @@
-const vscode = require("vscode");
-const net = require("net");
+import * as vscode from 'vscode';
 
-class GiteaDebugConfigurationProvider {
-    resolveDebugConfiguration(folder, config, token) {
+export class GiteaDebugConfigurationProvider implements vscode.DebugConfigurationProvider {
+    resolveDebugConfiguration(
+        _folder: vscode.WorkspaceFolder | undefined,
+        config: vscode.DebugConfiguration,
+        _token?: vscode.CancellationToken
+    ): vscode.ProviderResult<vscode.DebugConfiguration> {
         if (!config.type && !config.request && !config.name) {
             const editor = vscode.window.activeTextEditor;
             if (editor && editor.document.languageId === "yaml") {
@@ -21,13 +24,16 @@ class GiteaDebugConfigurationProvider {
     }
 }
 
-class GiteaDebugAdapterDescriptorFactory {
-    createDebugAdapterDescriptor(session, executable) {
+export class GiteaDebugAdapterDescriptorFactory implements vscode.DebugAdapterDescriptorFactory {
+    createDebugAdapterDescriptor(
+        session: vscode.DebugSession,
+        _executable: vscode.DebugAdapterExecutable | undefined
+    ): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
         return new vscode.DebugAdapterServer(session.configuration.port || 4711);
     }
 }
 
-function activate(context) {
+export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.debug.registerDebugConfigurationProvider("gitea-actions-debug", new GiteaDebugConfigurationProvider())
     );
@@ -36,7 +42,3 @@ function activate(context) {
         vscode.debug.registerDebugAdapterDescriptorFactory("gitea-actions-debug", new GiteaDebugAdapterDescriptorFactory())
     );
 }
-
-module.exports = {
-    activate
-};

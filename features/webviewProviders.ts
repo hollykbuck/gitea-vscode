@@ -884,8 +884,11 @@ function dlg(title, msg, cb) {
     }
 }
 
-class IssueWebviewProvider {
-    constructor(auth) {
+export class IssueWebviewProvider {
+    auth: GiteaAuth;
+    private _panels: Map<string, vscode.WebviewPanel>;
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
         this._panels = new Map();
     }
@@ -1835,8 +1838,11 @@ function dlg(title, msg, cb) {
     }
 }
 
-class PullRequestCreationProvider {
-    constructor(auth) {
+export class PullRequestCreationProvider {
+    auth: GiteaAuth;
+    private _panel: vscode.WebviewPanel | undefined;
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
     }
 
@@ -2197,8 +2203,12 @@ document.getElementById('prForm').addEventListener('submit', e => {
     }
 }
 
-class VersionInfoProvider {
-    constructor(auth, context) {
+export class VersionInfoProvider {
+    auth: GiteaAuth;
+    context: vscode.ExtensionContext;
+    private _panel: vscode.WebviewPanel | null = null;
+
+    constructor(auth: GiteaAuth, context: vscode.ExtensionContext) {
         this.auth = auth;
         this.context = context;
         this._panel = null;
@@ -2422,10 +2432,5 @@ class VersionInfoProvider {
     }
 }
 
-module.exports = {
-    PullRequestWebviewProvider,
-    IssueWebviewProvider,
-    PullRequestCreationProvider,
-    VersionInfoProvider
-};
+
 
