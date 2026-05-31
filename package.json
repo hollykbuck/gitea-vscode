@@ -466,10 +466,13 @@
         "compile": "node esbuild.mjs",
         "watch": "node esbuild.mjs --watch",
         "lint": "eslint .",
+        "mock": "prism mock plugin-redoc-1.yaml -p 4010",
+        "mock:dynamic": "prism mock plugin-redoc-1.yaml -p 4010 --dynamic",
         "pretest": "npm run compile && npm run lint",
         "test": "vscode-test"
     },
     "devDependencies": {
+        "@stoplight/prism-cli": "^5.15.10",
         "@types/mocha": "^10.0.10",
         "@types/node": "22.x",
         "@types/vscode": "^1.90.0",
