@@ -1,21 +1,13 @@
-const vscode = require('vscode');
+import * as vscode from 'vscode';
+import * as XLSX from 'xlsx';
 
 /**
  * Parse XLSX file and extract issue data
  * Expects columns: Title, Description, Labels (optional), Assignee (optional), Milestone (optional)
  * Returns array of issue objects
  */
-function parseXlsxFile(filePath) {
+function parseXlsxFile(filePath: string) {
     try {
-        // For XLSX parsing, we need to check if user has xlsx library
-        // If not available, provide helpful error message
-        let XLSX;
-        try {
-            XLSX = require('xlsx');
-        } catch {
-            throw new Error('xlsx module not found. Please ensure the extension is properly installed.');
-        }
-
         const workbook = XLSX.readFile(filePath);
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
@@ -218,9 +210,9 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
     };
 
     // Pre-fetch labels, milestones, and collaborators in parallel
-    let labelMap = {};
-    let milestoneMap = {};
-    let validAssignees = null; // null means validation disabled (fetch failed)
+    const labelMap: Record<string, number> = {};
+    const milestoneMap: Record<string, number> = {};
+    let validAssignees: Set<string> | null = null; // null means validation disabled (fetch failed)
 
     const [labelsResult, milestonesResult, collaboratorsResult] = await Promise.allSettled([
         auth.makeRequest(`/api/v1/repos/${owner}/${repo}/labels`),
@@ -355,7 +347,7 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
 /**
  * Show import dialog and process file selection
  */
-async function showImportIssuesDialog(auth, repositories) {
+export async function showImportIssuesDialog(auth: any, repositories: any[]) {
     try {
         // Step 1: Select XLSX file
         const fileUris = await vscode.window.showOpenDialog({
@@ -917,10 +909,4 @@ function escapeHtml(text) {
     return String(text).replace(/[&<>"']/g, m => map[m]);
 }
 
-module.exports = {
-    parseXlsxFile,
-    importIssuesInternal,
-    showImportIssuesDialog,
-    fetchAllIssues,
-    findDuplicateIssuesInCache
-};
+

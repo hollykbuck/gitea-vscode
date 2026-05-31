@@ -1,12 +1,16 @@
-const vscode = require('vscode');
-const path = require('path');
+import * as vscode from 'vscode';
+import * as path from 'path';
+import BranchManager from './branches';
 
-class DeletedBranchesProvider {
-    constructor(branchManager, repositoryProvider) {
+export default class DeletedBranchesProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+    branchManager: BranchManager;
+    repositoryProvider: any;
+    private _onDidChangeTreeData: vscode.EventEmitter<vscode.TreeItem | undefined | null | void> = new vscode.EventEmitter();
+    readonly onDidChangeTreeData: vscode.Event<vscode.TreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+
+    constructor(branchManager: BranchManager, repositoryProvider: any) {
         this.branchManager = branchManager;
         this.repositoryProvider = repositoryProvider;
-        this._onDidChangeTreeData = new vscode.EventEmitter();
-        this.onDidChangeTreeData = this._onDidChangeTreeData.event;
     }
 
     refresh() {

@@ -1,7 +1,8 @@
-const vscode = require('vscode');
-const { marked } = require('marked');
-const https = require('https');
-const http = require('http');
+import * as vscode from 'vscode';
+import { marked } from 'marked';
+import * as https from 'https';
+import * as http from 'http';
+import GiteaAuth from './auth';
 
 // Prevent raw HTML pass-through in markdown rendering (XSS mitigation)
 marked.use({
@@ -86,8 +87,11 @@ async function embedGiteaImages(auth, html) {
     });
 }
 
-class PullRequestWebviewProvider {
-    constructor(auth) {
+export class PullRequestWebviewProvider {
+    auth: GiteaAuth;
+    private _panels: Map<string, vscode.WebviewPanel>;
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
         this._panels = new Map();
     }

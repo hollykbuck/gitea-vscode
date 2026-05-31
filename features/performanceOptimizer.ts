@@ -64,9 +64,9 @@ export class CacheManager {
 /**
  * Debounce utility for throttling frequent calls
  */
-export function debounce(func: Function, wait: number) {
+export function debounce<T extends (...args: any[]) => any>(func: T, wait: number) {
     let timeout: NodeJS.Timeout | null = null;
-    return function executedFunction(...args: any[]) {
+    return function executedFunction(...args: Parameters<T>) {
         const later = () => {
             if (timeout) clearTimeout(timeout);
             func(...args);
@@ -79,9 +79,9 @@ export function debounce(func: Function, wait: number) {
 /**
  * Throttle utility for rate-limiting operations
  */
-export function throttle(func: Function, limit: number) {
+export function throttle<T extends (...args: any[]) => any>(func: T, limit: number) {
     let inThrottle: boolean;
-    return function (this: any, ...args: any[]) {
+    return function (this: any, ...args: Parameters<T>) {
         if (!inThrottle) {
             func.apply(this, args);
             inThrottle = true;

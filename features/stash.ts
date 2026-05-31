@@ -1,9 +1,9 @@
-const vscode = require('vscode');
-const { execSync, execFileSync } = require('child_process');
-const path = require('path');
-const fs = require('fs');
+import * as vscode from 'vscode';
+import { execSync } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 
-class StashManager {
+export default class StashManager {
     constructor() {
         this.stashes = [];
     }

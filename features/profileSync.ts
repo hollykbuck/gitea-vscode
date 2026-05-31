@@ -19,10 +19,10 @@
 
 'use strict';
 
-const vscode = require('vscode');
-const os = require('os');
-const path = require('path');
-const fs = require('fs');
+import * as vscode from 'vscode';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -289,7 +289,7 @@ async function syncProfileToGitea(auth) {
  *
  * @param {import('./auth')} auth
  */
-async function restoreProfileFromGitea(auth) {
+export async function restoreProfileFromGitea(auth: any) {
     if (!auth.isConfigured()) {
         vscode.window.showWarningMessage('Gitea is not configured. Please run "Gitea: Configure Instance" first.');
         return;
