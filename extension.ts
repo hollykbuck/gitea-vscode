@@ -12,12 +12,18 @@ import StashManager from './features/stash';
 import { throttle } from './features/performanceOptimizer';
 import { showImportIssuesDialog } from './features/importIssues';
 import { syncProfileToGitea, restoreProfileFromGitea } from './features/profileSync';
+import * as giteaDapDebugger from './src/dap/debugger';
+import * as giteaDapFs from './src/dap/fs';
 
 // Module-level reference so deactivate() can stop the monitoring timer
 let _notificationManager: NotificationManager | null = null;
 
 export async function activate(context: vscode.ExtensionContext) {
     try {
+        // Initialize DAP components
+        giteaDapDebugger.activate(context);
+        giteaDapFs.activate(context);
+
         // Initialize authentication
         const auth = new GiteaAuth();
         await auth.initialize();
