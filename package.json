@@ -442,10 +442,11 @@
     "scripts": {
         "vscode:prepublish": "npm run build",
         "compile": "tsc -p ./",
+        "compile:tests": "tsc -p ./tsconfig.test.json",
         "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
         "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
         "lint": "eslint .",
-        "pretest": "npm run lint",
+        "pretest": "npm run lint && npm run compile:tests",
         "test": "vscode-test"
     },
     "devDependencies": {

@@ -1,0 +1,26 @@
+{
+    "compilerOptions": {
+        "module": "Node16",
+        "moduleResolution": "Node16",
+        "target": "ES2022",
+        "lib": [
+            "ES2022"
+        ],
+        "strict": true,
+        "types": [
+            "mocha",
+            "node"
+        ],
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "sourceMap": true,
+        "outDir": "out",
+        "rootDir": "."
+    },
+    "include": [
+        "test/**/*.ts"
+    ],
+    "exclude": [
+        "node_modules"
+    ]
+}

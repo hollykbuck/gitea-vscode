@@ -105,17 +105,25 @@ export interface GiteaReview {
     submitted_at?: string;
 }
 
+export interface GiteaCommitAuthor {
+    name?: string;
+    email?: string;
+    date?: string;
+    login?: string;
+}
+
 export interface GiteaCommit {
     sha?: string;
     html_url?: string;
     url?: string;
     message?: string;
-    author?: { name?: string; date?: string } | GiteaUser;
-    committer?: { name?: string; date?: string } | GiteaUser;
+    created_at?: string;
+    author?: GiteaCommitAuthor;
+    committer?: GiteaCommitAuthor;
     commit?: {
         message?: string;
-        author?: { name?: string; date?: string };
-        committer?: { name?: string; date?: string };
+        author?: GiteaCommitAuthor;
+        committer?: GiteaCommitAuthor;
     };
 }
 

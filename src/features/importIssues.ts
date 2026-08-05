@@ -1,36 +1,56 @@
-const vscode = require('vscode');
+import * as vscode from 'vscode';
+import * as XLSX from 'xlsx';
+import { GiteaAuth } from './auth';
+import { GiteaIssue, GiteaRepository } from '../types/gitea';
+import { DuplicateMatch } from './webviewProviders';
+
+export interface ParsedIssue {
+    title: string;
+    body: string;
+    labels: string[];
+    assignee: string;
+    milestone: string;
+    state: string;
+    priority: string;
+    dueDate: string;
+}
+
+export interface ImportOptions {
+    allowAssignee: boolean;
+    allowMilestone: boolean;
+    allowDueDate: boolean;
+    checkDuplicates: boolean;
+    duplicateThreshold: number;
+}
+
+export interface ImportResults {
+    successful: { title: string; number: number; url: string; state: string }[];
+    failed: { title: string; error: string }[];
+    skipped: number;
+    duplicates: { title: string; potentialMatches: DuplicateMatch[] }[];
+    duplicateDetectionFailed: boolean;
+}
 
 /**
- * Parse XLSX file and extract issue data
- * Expects columns: Title, Description, Labels (optional), Assignee (optional), Milestone (optional)
- * Returns array of issue objects
+ * Parse an XLSX file and extract issue data.
+ * Expects columns: Title, Description, Labels (optional), Assignee (optional),
+ * Milestone (optional).
  */
-function parseXlsxFile(filePath) {
+export function parseXlsxFile(filePath: string): ParsedIssue[] {
     try {
-        // For XLSX parsing, we need to check if user has xlsx library
-        // If not available, provide helpful error message
-        let XLSX;
-        try {
-            XLSX = require('xlsx');
-        } catch {
-            throw new Error('xlsx module not found. Please ensure the extension is properly installed.');
-        }
-
         const workbook = XLSX.readFile(filePath);
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
 
-        // Convert sheet to JSON, starting from first row
-        const data = XLSX.utils.sheet_to_json(worksheet);
+        const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
 
         if (!data || data.length === 0) {
             throw new Error('No data found in XLSX file');
         }
 
-        // Validate and transform data
         const issues = data.map((row, index) => {
             const title = row['Title'] || row['title'] || row['TITLE'];
-            if (!title || title.trim() === '') {
+            if (!title || String(title).trim() === '') {
                 throw new Error(`Row ${index + 2}: Title column is required and cannot be empty`);
             }
 
@@ -38,25 +58,24 @@ function parseXlsxFile(filePath) {
                 title: String(title).trim(),
                 body: String(row['Description'] || row['description'] || row['DESCRIPTION'] || '').trim(),
                 labels: parseLabels(row['Labels'] || row['labels'] || row['LABELS'] || ''),
-                assignee: (row['Assignee'] || row['assignee'] || row['ASSIGNEE'] || '').trim(),
-                milestone: (row['Milestone'] || row['milestone'] || row['MILESTONE'] || '').trim(),
-                // Optional fields
-                state: (row['State'] || row['state'] || row['STATE'] || 'open').toLowerCase(),
-                priority: (row['Priority'] || row['priority'] || row['PRIORITY'] || '').trim(),
-                dueDate: (row['Due Date'] || row['due_date'] || row['DUE_DATE'] || '').trim()
+                assignee: String(row['Assignee'] || row['assignee'] || row['ASSIGNEE'] || '').trim(),
+                milestone: String(row['Milestone'] || row['milestone'] || row['MILESTONE'] || '').trim(),
+                state: String(row['State'] || row['state'] || row['STATE'] || 'open').toLowerCase(),
+                priority: String(row['Priority'] || row['priority'] || row['PRIORITY'] || '').trim(),
+                dueDate: String(row['Due Date'] || row['due_date'] || row['DUE_DATE'] || '').trim(),
             };
         });
 
         return issues;
     } catch (error) {
-        throw new Error(`Failed to parse XLSX file: ${error.message}`);
+        throw new Error(`Failed to parse XLSX file: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
 /**
- * Parse labels string (comma or semicolon separated) into array
+ * Parse a labels string (comma or semicolon separated) into an array.
  */
-function parseLabels(labelsStr) {
+export function parseLabels(labelsStr: unknown): string[] {
     if (!labelsStr || typeof labelsStr !== 'string') {
         return [];
     }
@@ -67,28 +86,27 @@ function parseLabels(labelsStr) {
 }
 
 /**
- * Calculate similarity score between two strings (0 to 1)
- * Uses simple character overlap algorithm
+ * Calculate similarity score between two strings (0 to 1).
  */
-function calculateStringSimilarity(str1, str2) {
+function calculateStringSimilarity(str1: string, str2: string): number {
     const s1 = String(str1 || '').toLowerCase();
     const s2 = String(str2 || '').toLowerCase();
-    
+
     if (s1 === s2) return 1;
     if (s1.length === 0 || s2.length === 0) return 0;
-    
+
     const longer = s1.length > s2.length ? s1 : s2;
     const shorter = s1.length > s2.length ? s2 : s1;
-    
+
     const editDistance = getLevenshteinDistance(shorter, longer);
     return (longer.length - editDistance) / longer.length;
 }
 
 /**
- * Calculate Levenshtein distance between two strings
+ * Calculate Levenshtein distance between two strings.
  */
-function getLevenshteinDistance(s1, s2) {
-    const costs = [];
+function getLevenshteinDistance(s1: string, s2: string): number {
+    const costs: number[] = [];
     for (let i = 0; i <= s1.length; i++) {
         let lastValue = i;
         for (let j = 0; j <= s2.length; j++) {
@@ -109,35 +127,28 @@ function getLevenshteinDistance(s1, s2) {
 }
 
 /**
- * Fetch all issues from a repository with pagination
- * @param {Object} auth - Auth object for API calls
- * @param {string} owner - Repository owner
- * @param {string} repo - Repository name
- * @param {number} pageSize - Issues per page (default 50)
- * @returns {Promise<Array>} Array of all issues in the repository
+ * Fetch all issues from a repository with pagination.
  */
-async function fetchAllIssues(auth, owner, repo, pageSize = 50) {
-    const allIssues = [];
+export async function fetchAllIssues(auth: GiteaAuth, owner: string, repo: string, pageSize = 50): Promise<GiteaIssue[]> {
+    const allIssues: GiteaIssue[] = [];
     let page = 1;
     let hasMore = true;
 
     try {
         while (hasMore) {
-            const issues = await auth.makeRequest(
-                `/api/v1/repos/${owner}/${repo}/issues?state=all&limit=${pageSize}&page=${page}`
+            const issues = await auth.makeRequest<GiteaIssue[]>(
+                `/api/v1/repos/${owner}/${repo}/issues?state=all&limit=${pageSize}&page=${page}`,
             );
 
             if (!Array.isArray(issues) || issues.length === 0) {
                 hasMore = false;
             } else {
-                // Filter out pull requests
                 issues.forEach(issue => {
                     if (!issue.pull_request) {
                         allIssues.push(issue);
                     }
                 });
 
-                // If we got less than pageSize, we've reached the end
                 if (issues.length < pageSize) {
                     hasMore = false;
                 } else {
@@ -149,41 +160,34 @@ async function fetchAllIssues(auth, owner, repo, pageSize = 50) {
         return allIssues;
     } catch (error) {
         console.error('Error fetching all issues:', error);
-        throw new Error(`Failed to fetch existing issues for duplicate detection: ${error.message}`);
+        throw new Error(`Failed to fetch existing issues for duplicate detection: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
 /**
- * Find potential duplicate issues based on title and description similarity
- * @param {Object} newIssue - Issue object to check
- * @param {Array} existingIssues - Pre-fetched array of existing issues
- * @param {number} threshold - Similarity threshold (0-1), default 0.7
- * @returns {Array} Array of potential duplicate issues
+ * Find potential duplicate issues based on title and description similarity.
  */
-function findDuplicateIssuesInCache(newIssue, existingIssues, threshold = 0.7) {
+export function findDuplicateIssuesInCache(
+    newIssue: { title: string; body?: string },
+    existingIssues: GiteaIssue[],
+    threshold = 0.7,
+): DuplicateMatch[] {
     if (!Array.isArray(existingIssues) || existingIssues.length === 0) {
         return [];
     }
 
-    const duplicates = [];
+    const duplicates: DuplicateMatch[] = [];
 
     existingIssues.forEach(existingIssue => {
-        // Calculate title similarity
         const titleSimilarity = calculateStringSimilarity(newIssue.title, existingIssue.title);
 
-        // Calculate description similarity with improved handling for missing bodies
         let bodySimilarity = 0;
         if (newIssue.body && existingIssue.body) {
-            // Both have bodies - compare them
             bodySimilarity = calculateStringSimilarity(newIssue.body, existingIssue.body);
         } else if (!newIssue.body && !existingIssue.body) {
-            // Both have no bodies - consider them as matching on this criteria
             bodySimilarity = 1.0;
         }
-        // If only one has a body, bodySimilarity remains 0
 
-        // Calculate combined similarity (weighted: 75% title, 25% body)
-        // Increased title weight since body might be missing
         const combinedScore = titleSimilarity * 0.75 + bodySimilarity * 0.25;
 
         if (combinedScore >= threshold) {
@@ -194,38 +198,41 @@ function findDuplicateIssuesInCache(newIssue, existingIssues, threshold = 0.7) {
                 url: existingIssue.html_url,
                 similarity: Math.round(combinedScore * 100),
                 created_at: existingIssue.created_at,
-                updated_at: existingIssue.updated_at
+                updated_at: existingIssue.updated_at,
             });
         }
     });
 
-    // Sort by similarity score (highest first)
     duplicates.sort((a, b) => b.similarity - a.similarity);
     return duplicates;
 }
 
 /**
- * Import issues from parsed data into Gitea
+ * Import issues from parsed data into Gitea.
  */
-async function importIssuesInternal(auth, repositoryFullName, issues, options = {}) {
+export async function importIssuesInternal(
+    auth: GiteaAuth,
+    repositoryFullName: string,
+    issues: ParsedIssue[],
+    options: ImportOptions = { allowAssignee: true, allowMilestone: true, allowDueDate: false, checkDuplicates: true, duplicateThreshold: 0.7 },
+): Promise<ImportResults> {
     const [owner, repo] = repositoryFullName.split('/');
-    const results = {
+    const results: ImportResults = {
         successful: [],
         failed: [],
         skipped: 0,
         duplicates: [],
-        duplicateDetectionFailed: false
+        duplicateDetectionFailed: false,
     };
 
-    // Pre-fetch labels, milestones, and collaborators in parallel
-    let labelMap = {};
-    let milestoneMap = {};
-    let validAssignees = null; // null means validation disabled (fetch failed)
+    let labelMap: Record<string, number> = {};
+    let milestoneMap: Record<string, number> = {};
+    let validAssignees: Set<string> | null = null;
 
     const [labelsResult, milestonesResult, collaboratorsResult] = await Promise.allSettled([
-        auth.makeRequest(`/api/v1/repos/${owner}/${repo}/labels`),
-        auth.makeRequest(`/api/v1/repos/${owner}/${repo}/milestones?limit=50`),
-        auth.makeRequest(`/api/v1/repos/${owner}/${repo}/collaborators`)
+        auth.makeRequest<{ id: number; name: string }[]>(`/api/v1/repos/${owner}/${repo}/labels`),
+        auth.makeRequest<{ id: number; title: string }[]>(`/api/v1/repos/${owner}/${repo}/milestones?limit=50`),
+        auth.makeRequest<{ login: string }[]>(`/api/v1/repos/${owner}/${repo}/collaborators`),
     ]);
 
     if (labelsResult.status === 'fulfilled' && Array.isArray(labelsResult.value)) {
@@ -233,7 +240,7 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
             labelMap[label.name.toLowerCase()] = label.id;
         });
     } else {
-        console.warn('Failed to fetch labels:', labelsResult.reason);
+        console.warn('Failed to fetch labels:', labelsResult.status === 'rejected' ? labelsResult.reason : undefined);
     }
 
     if (milestonesResult.status === 'fulfilled' && Array.isArray(milestonesResult.value)) {
@@ -241,74 +248,65 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
             milestoneMap[m.title.toLowerCase()] = m.id;
         });
     } else {
-        console.warn('Failed to fetch milestones:', milestonesResult.reason);
+        console.warn('Failed to fetch milestones:', milestonesResult.status === 'rejected' ? milestonesResult.reason : undefined);
     }
 
     if (collaboratorsResult.status === 'fulfilled' && Array.isArray(collaboratorsResult.value)) {
         validAssignees = new Set(collaboratorsResult.value.map(c => c.login));
     } else {
-        console.warn('Failed to fetch collaborators — assignee validation skipped:', collaboratorsResult.reason);
+        console.warn('Failed to fetch collaborators — assignee validation skipped:', collaboratorsResult.status === 'rejected' ? collaboratorsResult.reason : undefined);
     }
 
-    // Pre-fetch all existing issues for duplicate detection (optimization)
-    let existingIssuesCache = [];
+    let existingIssuesCache: GiteaIssue[] = [];
     if (options.checkDuplicates) {
         try {
             existingIssuesCache = await fetchAllIssues(auth, owner, repo);
         } catch (error) {
-            // Duplicate detection failed - log error and mark as failed
-            console.error('Duplicate detection failed:', error.message);
+            console.error('Duplicate detection failed:', error instanceof Error ? error.message : error);
             results.duplicateDetectionFailed = true;
-            // Continue with import but without duplicate detection
         }
     }
 
     for (let i = 0; i < issues.length; i++) {
         const issue = issues[i];
         try {
-            // Check for duplicates if option is enabled and detection didn't fail
             if (options.checkDuplicates && !results.duplicateDetectionFailed && existingIssuesCache.length > 0) {
                 const potentialDuplicates = findDuplicateIssuesInCache(
                     issue,
                     existingIssuesCache,
-                    options.duplicateThreshold || 0.7
+                    options.duplicateThreshold || 0.7,
                 );
 
                 if (potentialDuplicates.length > 0) {
                     results.duplicates.push({
                         title: issue.title,
-                        potentialMatches: potentialDuplicates
+                        potentialMatches: potentialDuplicates,
                     });
                     results.skipped++;
-                    continue; // Skip this issue
+                    continue;
                 }
             }
 
-            // Map label names to IDs
-            const labelIds = [];
+            const labelIds: number[] = [];
             for (const labelName of (issue.labels || [])) {
                 const labelId = labelMap[labelName.toLowerCase()];
                 if (labelId) {
                     labelIds.push(labelId);
                 }
-                // Silently skip labels that don't exist in the repository
             }
 
-            const requestBody = {
+            const requestBody: Record<string, unknown> = {
                 title: issue.title,
                 body: issue.body || '',
-                labels: labelIds
+                labels: labelIds,
             };
 
-            // Add optional fields if provided
             if (issue.assignee && options.allowAssignee) {
-                // Skip invalid assignees when we have a collaborator list
                 if (validAssignees === null || validAssignees.has(issue.assignee)) {
                     requestBody.assignee = issue.assignee;
                 }
             }
             if (issue.milestone && options.allowMilestone) {
-                // Map milestone title to ID; skip if title not found
                 const milestoneId = milestoneMap[issue.milestone.toLowerCase()];
                 if (milestoneId) {
                     requestBody.milestone = milestoneId;
@@ -318,17 +316,16 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
                 requestBody.due_date = issue.dueDate;
             }
 
-            const result = await auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues`, {
+            const result = await auth.makeRequest<GiteaIssue>(`/api/v1/repos/${owner}/${repo}/issues`, {
                 method: 'POST',
-                body: requestBody
+                body: requestBody,
             });
 
-            // Close the issue if the source state was 'closed'
             if (issue.state === 'closed') {
                 try {
                     await auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${result.number}`, {
                         method: 'PATCH',
-                        body: { state: 'closed' }
+                        body: { state: 'closed' },
                     });
                 } catch (closeError) {
                     console.warn(`Failed to close imported issue #${result.number}:`, closeError);
@@ -339,12 +336,12 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
                 title: issue.title,
                 number: result.number,
                 url: result.html_url,
-                state: issue.state || 'open'
+                state: issue.state || 'open',
             });
         } catch (error) {
             results.failed.push({
                 title: issue.title,
-                error: error.message
+                error: error instanceof Error ? error.message : String(error),
             });
         }
     }
@@ -353,27 +350,25 @@ async function importIssuesInternal(auth, repositoryFullName, issues, options = 
 }
 
 /**
- * Show import dialog and process file selection
+ * Show import dialog and process file selection.
  */
-async function showImportIssuesDialog(auth, repositories) {
+export async function showImportIssuesDialog(auth: GiteaAuth, repositories: GiteaRepository[]): Promise<void> {
     try {
-        // Step 1: Select XLSX file
         const fileUris = await vscode.window.showOpenDialog({
             canSelectMany: false,
             filters: {
                 'Excel Files': ['xlsx', 'xls'],
-                'All Files': ['*']
+                'All Files': ['*'],
             },
-            title: 'Select XLSX file to import issues'
+            title: 'Select XLSX file to import issues',
         });
 
         if (!fileUris || fileUris.length === 0) {
-            return; // User cancelled
+            return;
         }
 
         const filePath = fileUris[0].fsPath;
 
-        // Step 2: Select target repository
         if (!repositories || repositories.length === 0) {
             vscode.window.showErrorMessage('No repositories available to import issues into');
             return;
@@ -382,19 +377,18 @@ async function showImportIssuesDialog(auth, repositories) {
         const repoOptions = repositories.map(repo => ({
             label: repo.full_name,
             description: repo.description || '',
-            value: repo.full_name
+            value: repo.full_name,
         }));
 
         const selectedRepo = await vscode.window.showQuickPick(repoOptions, {
             placeHolder: 'Select repository to import issues into',
-            title: 'Import Issues - Select Target Repository'
+            title: 'Import Issues - Select Target Repository',
         });
 
         if (!selectedRepo) {
-            return; // User cancelled
+            return;
         }
 
-        // Step 3: Parse XLSX file
         vscode.window.showInformationMessage('Parsing XLSX file...');
         const issues = parseXlsxFile(filePath);
 
@@ -403,40 +397,36 @@ async function showImportIssuesDialog(auth, repositories) {
             return;
         }
 
-        // Step 4: Show preview and options
         const importOptions = await showImportOptionsDialog(issues);
         if (!importOptions) {
-            return; // User cancelled
+            return;
         }
 
-        // Step 5: Import issues
-        const progress = await vscode.window.withProgress({
+        const progress = await vscode.window.withProgress<ImportResults>({
             location: vscode.ProgressLocation.Notification,
             title: `Importing ${issues.length} issues...`,
-            cancellable: false
+            cancellable: false,
         }, async () => {
-            const results = await importIssuesInternal(auth, selectedRepo.value, issues, importOptions);
-            return results;
+            return await importIssuesInternal(auth, selectedRepo.value, issues, importOptions);
         });
 
-        // Show results
         showImportResults(progress);
     } catch (error) {
-        vscode.window.showErrorMessage(`Import failed: ${error.message}`);
+        vscode.window.showErrorMessage(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
         console.error('Import error:', error);
     }
 }
 
 /**
- * Show dialog for import options
+ * Show dialog for import options.
  */
-async function showImportOptionsDialog(issues) {
+async function showImportOptionsDialog(issues: ParsedIssue[]): Promise<ImportOptions | null> {
     return new Promise((resolve) => {
         const panel = vscode.window.createWebviewPanel(
             'giteaImportOptions',
             'Import Issues - Options',
             vscode.ViewColumn.One,
-            { enableScripts: true }
+            { enableScripts: true },
         );
 
         const issuePreview = issues.slice(0, 3).map(issue =>
@@ -444,7 +434,7 @@ async function showImportOptionsDialog(issues) {
                 <td>${escapeHtml(issue.title)}</td>
                 <td>${issue.labels.length > 0 ? issue.labels.join(', ') : '-'}</td>
                 <td>${escapeHtml(issue.body.substring(0, 50))}${issue.body.length > 50 ? '...' : ''}</td>
-            </tr>`
+            </tr>`,
         ).join('');
 
         panel.webview.html = `<!DOCTYPE html>
@@ -548,7 +538,7 @@ async function showImportOptionsDialog(issues) {
 <body>
     <div class="container">
         <h2>Import Issues - Options</h2>
-        
+
         <div class="summary">
             Found <strong>${issues.length} issues</strong> to import
         </div>
@@ -606,12 +596,11 @@ async function showImportOptionsDialog(issues) {
 
     <script>
         const vscode = acquireVsCodeApi();
-        
-        // Toggle duplicate threshold dropdown based on checkbox
+
         document.getElementById('checkDuplicates').addEventListener('change', (e) => {
             document.getElementById('duplicateThreshold').disabled = !e.target.checked;
         });
-        
+
         function importIssues() {
             const options = {
                 allowAssignee: document.getElementById('allowAssignee').checked,
@@ -629,9 +618,9 @@ async function showImportOptionsDialog(issues) {
 </body>
 </html>`;
 
-        panel.webview.onDidReceiveMessage(message => {
+        panel.webview.onDidReceiveMessage((message: { command: string; options?: ImportOptions }) => {
             if (message.command === 'import') {
-                resolve(message.options);
+                resolve(message.options || null);
             } else {
                 resolve(null);
             }
@@ -645,9 +634,9 @@ async function showImportOptionsDialog(issues) {
 }
 
 /**
- * Show import results summary
+ * Show import results summary.
  */
-function showImportResults(results) {
+function showImportResults(results: ImportResults): void {
     const { successful, failed, skipped, duplicates, duplicateDetectionFailed } = results;
 
     if (successful.length === 0 && failed.length === 0 && (skipped || 0) === 0) {
@@ -673,7 +662,7 @@ function showImportResults(results) {
 
     const message = [successMsg, failMsg, skipMsg, warningMsg].filter(m => m).join('\n');
 
-    const buttons = [];
+    const buttons: string[] = [];
     if (successful.length > 0) buttons.push('View Created Issues');
     if (failed.length > 0) buttons.push('View Failures');
     if (duplicates.length > 0) buttons.push('View Duplicates');
@@ -698,14 +687,14 @@ function showImportResults(results) {
 }
 
 /**
- * Show created issues with clickable links
+ * Show created issues with clickable links.
  */
-function showCreatedIssues(successful) {
+function showCreatedIssues(successful: ImportResults['successful']): void {
     const panel = vscode.window.createWebviewPanel(
         'giteaCreatedIssues',
         'Created Issues',
         vscode.ViewColumn.One,
-        { enableScripts: false }
+        { enableScripts: false },
     );
 
     const rows = successful.map(issue => `
@@ -741,14 +730,14 @@ function showCreatedIssues(successful) {
 }
 
 /**
- * Show detailed duplicate information
+ * Show detailed duplicate information.
  */
-function showDuplicateDetails(duplicates) {
+function showDuplicateDetails(duplicates: ImportResults['duplicates']): void {
     const panel = vscode.window.createWebviewPanel(
         'giteaDuplicates',
         'Duplicate Issues',
         vscode.ViewColumn.One,
-        {}
+        {},
     );
 
     const duplicateRows = duplicates.map(dup => {
@@ -765,7 +754,7 @@ function showDuplicateDetails(duplicates) {
                     </span>
                 </div>
                 <div style="font-size: 12px; color: var(--vscode-descriptionForeground); margin-top: 4px;">
-                    State: <strong>${match.state}</strong> | Updated: ${new Date(match.updated_at).toLocaleDateString()}
+                    State: <strong>${match.state}</strong> | Updated: ${match.updated_at ? new Date(match.updated_at).toLocaleDateString() : ''}
                 </div>
             </div>
         `).join('');
@@ -831,14 +820,14 @@ function showDuplicateDetails(duplicates) {
 }
 
 /**
- * Show detailed failure information
+ * Show detailed failure information.
  */
-function showFailureDetails(failedIssues) {
+function showFailureDetails(failedIssues: ImportResults['failed']): void {
     const panel = vscode.window.createWebviewPanel(
         'giteaImportFailures',
         'Import Failures',
         vscode.ViewColumn.One,
-        {}
+        {},
     );
 
     const failureRows = failedIssues.map(issue => `
@@ -903,24 +892,16 @@ function showFailureDetails(failedIssues) {
 }
 
 /**
- * Helper function to escape HTML special characters
+ * Helper function to escape HTML special characters.
  */
-function escapeHtml(text) {
+function escapeHtml(text: string): string {
     if (!text) return '';
-    const map = {
+    const map: Record<string, string> = {
         '&': '&amp;',
         '<': '&lt;',
         '>': '&gt;',
         '"': '&quot;',
-        "'": '&#039;'
+        "'": '&#039;',
     };
     return String(text).replace(/[&<>"']/g, m => map[m]);
 }
-
-module.exports = {
-    parseXlsxFile,
-    importIssuesInternal,
-    showImportIssuesDialog,
-    fetchAllIssues,
-    findDuplicateIssuesInCache
-};

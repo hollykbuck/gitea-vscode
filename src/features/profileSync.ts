@@ -1,41 +1,20 @@
+import * as vscode from 'vscode';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
+import { GiteaAuth } from './auth';
+import { GiteaContentsFile, GiteaRepository, GiteaUser } from '../types/gitea';
+
 /**
- * profileSync.js
- *
- * Provides "Sync VS Code profile to Gitea" and "Restore VS Code profile from
- * Gitea" functionality (GitHub issue #18).
- *
- * What gets synced
- * ----------------
- *  - settings.json        – user-level VS Code settings
- *  - keybindings.json     – user-level keyboard shortcuts
- *  - extensions.json      – list of installed, non-builtin extensions
- *
- * Storage
- * -------
- * All three files are written to the root of a single Gitea repository that the
- * user nominates (defaults to a repo named "vscode-profile" in their own account).
- * If the repository does not exist, the user is offered the option to create it.
+ * Returns the platform-specific VS Code user-data directory.
  */
-
-'use strict';
-
-const vscode = require('vscode');
-const os = require('os');
-const path = require('path');
-const fs = require('fs');
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Returns the platform-specific VS Code user-data directory. */
-function getVSCodeUserDataPath() {
+function getVSCodeUserDataPath(): string {
     const home = os.homedir();
     switch (process.platform) {
         case 'win32':
             return path.join(
                 process.env.APPDATA || path.join(home, 'AppData', 'Roaming'),
-                'Code', 'User'
+                'Code', 'User',
             );
         case 'darwin':
             return path.join(home, 'Library', 'Application Support', 'Code', 'User');
@@ -44,8 +23,10 @@ function getVSCodeUserDataPath() {
     }
 }
 
-/** Read a file and return its text, or null if it does not exist / cannot be read. */
-function readFileSafe(filePath) {
+/**
+ * Read a file and return its text, or null if it does not exist / cannot be read.
+ */
+function readFileSafe(filePath: string): string | null {
     try {
         return fs.readFileSync(filePath, 'utf8');
     } catch {
@@ -53,35 +34,37 @@ function readFileSafe(filePath) {
     }
 }
 
-/** Build a minimal RFC-6901-safe base-64 string from a UTF-8 string. */
-function toBase64(text) {
+/**
+ * Build a base-64 string from a UTF-8 string.
+ */
+function toBase64(text: string): string {
     return Buffer.from(text, 'utf8').toString('base64');
 }
 
-/** Decode a base-64 string to UTF-8. */
-function fromBase64(b64) {
+/**
+ * Decode a base-64 string to UTF-8.
+ */
+function fromBase64(b64: string): string {
     return Buffer.from(b64, 'base64').toString('utf8');
+}
+
+interface RepoPickItem extends vscode.QuickPickItem {
+    special?: boolean;
 }
 
 /**
  * Ask the user to pick (or type) a Gitea repository in the form "owner/repo".
- * Suggests repos already visible to the authenticated user.
- *
- * @param {import('./auth')} auth
- * @param {string}           defaultRepo  e.g. "alice/vscode-profile"
- * @returns {Promise<string|null>}  "owner/repo" or null if cancelled
  */
-async function pickProfileRepo(auth, defaultRepo) {
-    let repoItems = [];
+async function pickProfileRepo(auth: GiteaAuth, defaultRepo: string): Promise<string | null> {
+    let repoItems: RepoPickItem[] = [];
     try {
-        const repos = await auth.makeRequest('/api/v1/user/repos?limit=50');
+        const repos = await auth.makeRequest<GiteaRepository[]>('/api/v1/user/repos?limit=50');
         repoItems = (repos || []).map(r => ({
             label: r.full_name,
             description: r.description || '',
         }));
     } catch { /* fall through – user can still type manually */ }
 
-    // Ensure the default appears first
     if (defaultRepo && !repoItems.find(r => r.label === defaultRepo)) {
         repoItems.unshift({ label: defaultRepo, description: '(will be created if missing)' });
     }
@@ -91,42 +74,36 @@ async function pickProfileRepo(auth, defaultRepo) {
             ...repoItems,
             { label: '$(add) Enter a different repository...', description: '', special: true },
         ],
-        { placeHolder: 'Select or enter the Gitea repository for your VS Code profile' }
+        { placeHolder: 'Select or enter the Gitea repository for your VS Code profile' },
     );
 
     if (!picked) return null;
 
     if (picked.special) {
-        return vscode.window.showInputBox({
+        return (await vscode.window.showInputBox({
             prompt: 'Gitea repository (owner/repo)',
             value: defaultRepo,
             placeHolder: 'alice/vscode-profile',
             validateInput: v => (v && v.includes('/') ? null : 'Enter in owner/repo format'),
-        });
+        })) ?? null;
     }
 
     return picked.label;
 }
 
 /**
- * Ensure the target Gitea repository exists.  If it does not, offer to create
- * a private repository with that name for the authenticated user.
- *
- * @param {import('./auth')} auth
- * @param {string}           owner
- * @param {string}           repo
- * @returns {Promise<boolean>}  true if the repo exists (or was just created)
+ * Ensure the target Gitea repository exists, offering to create it if missing.
  */
-async function ensureRepo(auth, owner, repo) {
+async function ensureRepo(auth: GiteaAuth, owner: string, repo: string): Promise<boolean> {
     try {
         await auth.makeRequest(`/api/v1/repos/${owner}/${repo}`);
-        return true; // already exists
+        return true;
     } catch { /* 404 – fall through to create */ }
 
     const create = await vscode.window.showInformationMessage(
         `Repository "${owner}/${repo}" does not exist on your Gitea instance. Create it now?`,
         'Create (private)',
-        'Cancel'
+        'Cancel',
     );
 
     if (create !== 'Create (private)') return false;
@@ -144,29 +121,22 @@ async function ensureRepo(auth, owner, repo) {
         });
         return true;
     } catch (err) {
-        vscode.window.showErrorMessage(`Failed to create repository: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to create repository: ${err instanceof Error ? err.message : err}`);
         return false;
     }
 }
 
 /**
  * Create or update a single file in a Gitea repository.
- *
- * @param {import('./auth')} auth
- * @param {string} owner
- * @param {string} repo
- * @param {string} filePath  Path within the repo (e.g. "settings.json")
- * @param {string} content   UTF-8 text content
- * @param {string} message   Commit message
  */
-async function upsertFile(auth, owner, repo, filePath, content, message) {
-    let sha;
+async function upsertFile(auth: GiteaAuth, owner: string, repo: string, filePath: string, content: string, message: string): Promise<void> {
+    let sha: string | undefined;
     try {
-        const existing = await auth.makeRequest(`/api/v1/repos/${owner}/${repo}/contents/${filePath}`);
+        const existing = await auth.makeRequest<GiteaContentsFile>(`/api/v1/repos/${owner}/${repo}/contents/${filePath}`);
         sha = existing.sha;
     } catch { /* file does not yet exist */ }
 
-    const body = {
+    const body: Record<string, unknown> = {
         message,
         content: toBase64(content),
     };
@@ -180,45 +150,32 @@ async function upsertFile(auth, owner, repo, filePath, content, message) {
 
 /**
  * Read a single file from a Gitea repository.
- *
- * @param {import('./auth')} auth
- * @param {string} owner
- * @param {string} repo
- * @param {string} filePath  Path within the repo
- * @returns {Promise<string|null>}  UTF-8 text, or null if not found
  */
-async function readRepoFile(auth, owner, repo, filePath) {
+async function readRepoFile(auth: GiteaAuth, owner: string, repo: string, filePath: string): Promise<string | null> {
     try {
-        const result = await auth.makeRequest(`/api/v1/repos/${owner}/${repo}/contents/${filePath}`);
-        return fromBase64(result.content.replace(/\n/g, ''));
+        const result = await auth.makeRequest<GiteaContentsFile>(`/api/v1/repos/${owner}/${repo}/contents/${filePath}`);
+        return fromBase64((result.content || '').replace(/\n/g, ''));
     } catch {
         return null;
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public commands
-// ---------------------------------------------------------------------------
-
 /**
  * Collect the current VS Code profile (settings, keybindings, extensions) and
  * push it to a Gitea repository chosen by the user.
- *
- * @param {import('./auth')} auth
  */
-async function syncProfileToGitea(auth) {
+export async function syncProfileToGitea(auth: GiteaAuth): Promise<void> {
     if (!auth.isConfigured()) {
         vscode.window.showWarningMessage('Gitea is not configured. Please run "Gitea: Configure Instance" first.');
         return;
     }
 
-    // Determine the default repo ("currentUser/vscode-profile")
-    let currentUser;
+    let currentUser: string;
     try {
-        const me = await auth.makeRequest('/api/v1/user');
+        const me = await auth.makeRequest<GiteaUser>('/api/v1/user');
         currentUser = me.login;
     } catch (err) {
-        vscode.window.showErrorMessage(`Failed to get current Gitea user: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to get current Gitea user: ${err instanceof Error ? err.message : err}`);
         return;
     }
 
@@ -236,27 +193,24 @@ async function syncProfileToGitea(auth) {
     await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Syncing VS Code profile to Gitea…', cancellable: false },
         async (progress) => {
-            // --- settings.json ---
             progress.report({ message: 'uploading settings.json' });
             const settingsPath = path.join(userDataPath, 'settings.json');
             const settingsText = readFileSafe(settingsPath) || '{}';
             try {
                 await upsertFile(auth, owner, repo, 'settings.json', settingsText, commitMsg);
             } catch (err) {
-                vscode.window.showWarningMessage(`Could not upload settings.json: ${err.message}`);
+                vscode.window.showWarningMessage(`Could not upload settings.json: ${err instanceof Error ? err.message : err}`);
             }
 
-            // --- keybindings.json ---
             progress.report({ message: 'uploading keybindings.json' });
             const keybindingsPath = path.join(userDataPath, 'keybindings.json');
             const keybindingsText = readFileSafe(keybindingsPath) || '[]';
             try {
                 await upsertFile(auth, owner, repo, 'keybindings.json', keybindingsText, commitMsg);
             } catch (err) {
-                vscode.window.showWarningMessage(`Could not upload keybindings.json: ${err.message}`);
+                vscode.window.showWarningMessage(`Could not upload keybindings.json: ${err instanceof Error ? err.message : err}`);
             }
 
-            // --- extensions.json ---
             progress.report({ message: 'uploading extensions.json' });
             const extensions = vscode.extensions.all
                 .filter(e => !e.packageJSON.isBuiltin)
@@ -269,14 +223,14 @@ async function syncProfileToGitea(auth) {
             try {
                 await upsertFile(auth, owner, repo, 'extensions.json', extensionsText, commitMsg);
             } catch (err) {
-                vscode.window.showWarningMessage(`Could not upload extensions.json: ${err.message}`);
+                vscode.window.showWarningMessage(`Could not upload extensions.json: ${err instanceof Error ? err.message : err}`);
             }
-        }
+        },
     );
 
     const openInBrowser = await vscode.window.showInformationMessage(
         `VS Code profile synced to ${repoFullName} on Gitea.`,
-        'Open in Browser'
+        'Open in Browser',
     );
     if (openInBrowser === 'Open in Browser') {
         vscode.env.openExternal(vscode.Uri.parse(`${auth.instanceUrl}/${repoFullName}`));
@@ -286,21 +240,19 @@ async function syncProfileToGitea(auth) {
 /**
  * Read VS Code profile files from a Gitea repository and offer to restore them
  * locally.
- *
- * @param {import('./auth')} auth
  */
-async function restoreProfileFromGitea(auth) {
+export async function restoreProfileFromGitea(auth: GiteaAuth): Promise<void> {
     if (!auth.isConfigured()) {
         vscode.window.showWarningMessage('Gitea is not configured. Please run "Gitea: Configure Instance" first.');
         return;
     }
 
-    let currentUser;
+    let currentUser: string;
     try {
-        const me = await auth.makeRequest('/api/v1/user');
+        const me = await auth.makeRequest<GiteaUser>('/api/v1/user');
         currentUser = me.login;
     } catch (err) {
-        vscode.window.showErrorMessage(`Failed to get current Gitea user: ${err.message}`);
+        vscode.window.showErrorMessage(`Failed to get current Gitea user: ${err instanceof Error ? err.message : err}`);
         return;
     }
 
@@ -310,7 +262,6 @@ async function restoreProfileFromGitea(auth) {
 
     const [owner, repo] = repoFullName.split('/');
 
-    // Ask which parts to restore
     const parts = await vscode.window.showQuickPick(
         [
             { label: 'settings.json', description: 'VS Code user settings', picked: true },
@@ -320,7 +271,7 @@ async function restoreProfileFromGitea(auth) {
         {
             canPickMany: true,
             placeHolder: 'Choose which profile items to restore',
-        }
+        },
     );
     if (!parts || parts.length === 0) return;
 
@@ -333,7 +284,6 @@ async function restoreProfileFromGitea(auth) {
     await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Restoring VS Code profile from Gitea…', cancellable: false },
         async (progress) => {
-            // --- settings.json ---
             if (wantSettings) {
                 progress.report({ message: 'downloading settings.json' });
                 const text = await readRepoFile(auth, owner, repo, 'settings.json');
@@ -343,14 +293,13 @@ async function restoreProfileFromGitea(auth) {
                         fs.mkdirSync(userDataPath, { recursive: true });
                         fs.writeFileSync(dest, text, 'utf8');
                     } catch (err) {
-                        vscode.window.showWarningMessage(`Could not write settings.json: ${err.message}`);
+                        vscode.window.showWarningMessage(`Could not write settings.json: ${err instanceof Error ? err.message : err}`);
                     }
                 } else {
                     vscode.window.showWarningMessage('settings.json not found in the selected repository.');
                 }
             }
 
-            // --- keybindings.json ---
             if (wantKeybindings) {
                 progress.report({ message: 'downloading keybindings.json' });
                 const text = await readRepoFile(auth, owner, repo, 'keybindings.json');
@@ -360,25 +309,24 @@ async function restoreProfileFromGitea(auth) {
                         fs.mkdirSync(userDataPath, { recursive: true });
                         fs.writeFileSync(dest, text, 'utf8');
                     } catch (err) {
-                        vscode.window.showWarningMessage(`Could not write keybindings.json: ${err.message}`);
+                        vscode.window.showWarningMessage(`Could not write keybindings.json: ${err instanceof Error ? err.message : err}`);
                     }
                 } else {
                     vscode.window.showWarningMessage('keybindings.json not found in the selected repository.');
                 }
             }
 
-            // --- extensions.json ---
             if (wantExtensions) {
                 progress.report({ message: 'processing extensions.json' });
                 const text = await readRepoFile(auth, owner, repo, 'extensions.json');
                 if (text !== null) {
                     try {
-                        const { extensions: savedExts } = JSON.parse(text);
+                        const { extensions: savedExts } = JSON.parse(text) as { extensions: { id: string; displayName?: string }[] };
                         const installedIds = new Set(
-                            vscode.extensions.all.map(e => e.id.toLowerCase())
+                            vscode.extensions.all.map(e => e.id.toLowerCase()),
                         );
                         const missing = savedExts.filter(
-                            e => !installedIds.has(e.id.toLowerCase())
+                            e => !installedIds.has(e.id.toLowerCase()),
                         );
 
                         if (missing.length === 0) {
@@ -388,7 +336,7 @@ async function restoreProfileFromGitea(auth) {
                                 `${missing.length} extension(s) from the profile are not installed. Install them now?`,
                                 'Install All',
                                 'Show List',
-                                'Skip'
+                                'Skip',
                             );
 
                             if (install === 'Install All') {
@@ -396,7 +344,7 @@ async function restoreProfileFromGitea(auth) {
                                     try {
                                         await vscode.commands.executeCommand(
                                             'workbench.extensions.installExtension',
-                                            ext.id
+                                            ext.id,
                                         );
                                     } catch (err) {
                                         console.error(`Failed to install ${ext.id}:`, err);
@@ -407,28 +355,26 @@ async function restoreProfileFromGitea(auth) {
                                 const listText = missing.map(e => `• ${e.id} (${e.displayName || e.id})`).join('\n');
                                 vscode.window.showInformationMessage(
                                     `Missing extensions:\n${listText}`,
-                                    { modal: true }
+                                    { modal: true },
                                 );
                             }
                         }
                     } catch (err) {
-                        vscode.window.showWarningMessage(`Could not process extensions.json: ${err.message}`);
+                        vscode.window.showWarningMessage(`Could not process extensions.json: ${err instanceof Error ? err.message : err}`);
                     }
                 } else {
                     vscode.window.showWarningMessage('extensions.json not found in the selected repository.');
                 }
             }
-        }
+        },
     );
 
     vscode.window.showInformationMessage(
         'Profile restore complete. Reload the window to apply any settings changes.',
-        'Reload Window'
+        'Reload Window',
     ).then(action => {
         if (action === 'Reload Window') {
             vscode.commands.executeCommand('workbench.action.reloadWindow');
         }
     });
 }
-
-module.exports = { syncProfileToGitea, restoreProfileFromGitea };

@@ -1,19 +1,15 @@
-/**
- * Write a simple test to verify that the extension and its commands are registered correctly
- */
-const assert = require('assert');
-const vscode = require('vscode');
+import * as assert from 'assert';
+import * as vscode from 'vscode';
 
 suite('Extension Tests', () => {
-    test('Extension is Present', function () {
+    test('Extension is Present', () => {
         const extension = vscode.extensions.getExtension('TerenceCarrera.gitea');
         assert.ok(extension, 'Extension not found');
     });
 
     test('Key Commands are Registered Properly', async function () {
-        this.timeout(5000);
+        this.timeout(15000);
 
-    // List of expected commands
         const expectedCommands = [
             // Configuration & Profile Management
             'gitea.configure',
@@ -55,14 +51,23 @@ suite('Extension Tests', () => {
             // Notifications & Other
             'gitea.toggleNotifications',
             'gitea.notificationStatus',
-            'gitea.manageStash'
+            'gitea.manageStash',
         ];
 
-        // Check each command
+        // Activation is event-driven and may complete after the test starts, so
+        // poll until all expected commands are registered.
+        const deadline = Date.now() + 10000;
+        let commands: string[] = [];
+        while (Date.now() < deadline) {
+            commands = await vscode.commands.getCommands();
+            if (expectedCommands.every(cmd => commands.includes(cmd))) {
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 250));
+        }
+
         for (const cmd of expectedCommands) {
-            const commands = await vscode.commands.getCommands();
             assert.ok(commands.includes(cmd), `Command ${cmd} is not registered`);
         }
     });
 });
-

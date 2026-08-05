@@ -1,173 +1,179 @@
-const vscode = require('vscode');
-const { marked } = require('marked');
-const https = require('https');
-const http = require('http');
+import * as vscode from 'vscode';
+import { marked } from 'marked';
+import { GiteaAuth } from './auth';
+import {
+    GiteaBranch,
+    GiteaComment,
+    GiteaCommit,
+    GiteaCompareResponse,
+    GiteaFile,
+    GiteaIssue,
+    GiteaPullRequest,
+    GiteaRepository,
+    GiteaReview,
+    GiteaUser,
+    GiteaVersionResponse,
+} from '../types/gitea';
 
 // Prevent raw HTML pass-through in markdown rendering (XSS mitigation)
 marked.use({
     renderer: {
-        html(token) {
-            const text = typeof token === 'string' ? token : (token.text || '');
+        html(token: unknown): string {
+            const text = typeof token === 'string' ? token : ((token as { text?: string })?.text ?? '');
             return text
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
-        }
-    }
+        },
+    },
 });
 
 /**
- * Finds all <img src="..."> tags in the given HTML whose src begins with the
+ * Finds all `<img src="...">` tags in the given HTML whose src begins with the
  * Gitea instance URL, fetches each image with authentication, and replaces the
  * src attribute with an inline base64 data URI so the webview can display them
- * without running into 403 errors or CSP restrictions.
- *
- * @param {import('./auth')} auth  GiteaAuth instance (needs instanceUrl & authToken)
- * @param {string} html            Rendered HTML string
- * @returns {Promise<string>}      HTML with Gitea image URLs replaced by data URIs
+ * without 403 errors or CSP restrictions.
  */
-async function embedGiteaImages(auth, html) {
+async function embedGiteaImages(auth: GiteaAuth, html: string): Promise<string> {
     if (!auth.instanceUrl || !auth.authToken) return html;
 
-    // Collect unique Gitea image URLs from <img src="..."> attributes.
     const baseUrl = auth.instanceUrl.replace(/\/$/, '');
     const imgSrcRegex = /<img([^>]*?)\ssrc="(https?:\/\/[^"]+)"([^>]*?)>/gi;
-    const urlsToFetch = new Set();
-    let m;
+    const urlsToFetch = new Set<string>();
+    let m: RegExpExecArray | null;
     while ((m = imgSrcRegex.exec(html)) !== null) {
         const src = m[2];
-        if (src.startsWith(baseUrl + '/') || src.startsWith(baseUrl + '?')) {
+        if (src.startsWith(`${baseUrl}/`) || src.startsWith(`${baseUrl}?`)) {
             urlsToFetch.add(src);
         }
     }
     if (urlsToFetch.size === 0) return html;
 
-    // Fetch all images concurrently, converting each to a data URI.
-    const dataUriMap = new Map();
+    const dataUriMap = new Map<string, string>();
     await Promise.all([...urlsToFetch].map(async (src) => {
         try {
-            const parsedUrl = new URL(src);
-            const protocol = parsedUrl.protocol === 'https:' ? https : http;
-            const buffer = await new Promise((resolve, reject) => {
-                const req = protocol.request(
-                    parsedUrl,
-                    { method: 'GET', headers: { 'Authorization': `token ${auth.authToken}` } },
-                    (res) => {
-                        const chunks = [];
-                        res.on('data', (chunk) => chunks.push(chunk));
-                        res.on('end', () => {
-                            if (res.statusCode >= 200 && res.statusCode < 300) {
-                                resolve(Buffer.concat(chunks));
-                            } else {
-                                reject(new Error(`HTTP ${res.statusCode}`));
-                            }
-                        });
-                    }
-                );
-                req.on('error', reject);
-                req.end();
-            });
-            // Detect MIME type from Content-Type or fall back to a safe default.
-            const contentType = 'image/png'; // safe fallback; most Gitea attachments are PNG/JPEG
+            const buffer = await auth.client.fetchBinary(src);
+            const contentType = 'image/png';
             dataUriMap.set(src, `data:${contentType};base64,${buffer.toString('base64')}`);
         } catch (err) {
-            // If fetching fails, leave the original URL; the broken-image icon is
-            // preferable to crashing the whole webview render.
-            console.error(`embedGiteaImages: failed to fetch ${src}:`, err.message);
+            console.error(`embedGiteaImages: failed to fetch ${src}:`, err instanceof Error ? err.message : err);
         }
     }));
 
-    // Replace all matched src URLs with their data URIs.
     return html.replace(imgSrcRegex, (full, before, src, after) => {
         const dataUri = dataUriMap.get(src);
         return dataUri ? `<img${before} src="${dataUri}"${after}>` : full;
     });
 }
 
-class PullRequestWebviewProvider {
-    constructor(auth) {
+interface WebviewMessage {
+    command: string;
+    body?: string;
+    event?: string;
+    mergeMethod?: string;
+    style?: string;
+    commentId?: number;
+    repository?: string;
+    title?: string;
+    labels?: string;
+    branch?: string;
+    base?: string;
+    head?: string;
+    assignees?: string;
+    data?: {
+        repository: string;
+        title: string;
+        body?: string;
+        labels?: string;
+        branch?: string;
+        base?: string;
+        head?: string;
+        assignees?: string;
+    };
+    text?: string;
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+export class PullRequestWebviewProvider {
+    private readonly auth: GiteaAuth;
+    private readonly _panels = new Map<string, vscode.WebviewPanel>();
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
-        this._panels = new Map();
     }
 
-    async showPullRequest(prNumber, repository) {
+    async showPullRequest(prNumber: number, repository: string): Promise<void> {
         try {
             const panelKey = `${repository}#${prNumber}`;
 
-            // Reuse existing panel if available
-            if (this._panels.has(panelKey)) {
-                const panel = this._panels.get(panelKey);
-                panel.reveal(vscode.ViewColumn.One);
+            const existing = this._panels.get(panelKey);
+            if (existing) {
+                existing.reveal(vscode.ViewColumn.One);
                 return;
             }
 
-            // Fetch PR details
             const [owner, repo] = repository.split('/');
-            let prDetails, comments, reviews, files, commitsList, diffContent, conflictingFiles = [], compareInfo = null;
+            let prDetails: GiteaPullRequest;
+            let comments: GiteaComment[] = [];
+            let reviews: GiteaReview[] = [];
+            let files: GiteaFile[] = [];
+            let commitsList: GiteaCommit[] = [];
+            let conflictingFiles: GiteaFile[] = [];
+            let compareInfo: GiteaCompareResponse | null = null;
 
             try {
-                [prDetails, comments, reviews, files, commitsList] = await Promise.all([
-                    this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}`),
-                    this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${prNumber}/comments`),
-                    this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/reviews`).catch(() => []),
-                    this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/files`).catch(() => []),
-                    this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/commits`).catch(() => [])
+                const results = await Promise.all([
+                    this.auth.makeRequest<GiteaPullRequest>(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}`),
+                    this.auth.makeRequest<GiteaComment[]>(`/api/v1/repos/${owner}/${repo}/issues/${prNumber}/comments`),
+                    this.auth.makeRequest<GiteaReview[]>(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/reviews`).catch(() => [] as GiteaReview[]),
+                    this.auth.makeRequest<GiteaFile[]>(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/files`).catch(() => [] as GiteaFile[]),
+                    this.auth.makeRequest<GiteaCommit[]>(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/commits`).catch(() => [] as GiteaCommit[]),
                 ]);
+                [prDetails, comments, reviews, files, commitsList] = results;
 
-                // Determine if branch is behind base (out-of-date)
-                try {
-                    const baseRef = encodeURIComponent(prDetails.base?.ref || '');
-                    const headRef = encodeURIComponent(prDetails.head?.ref || '');
-                    if (baseRef && headRef) {
-                        compareInfo = await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/compare/${baseRef}...${headRef}`)
-                            .catch(() => null);
+                const baseRef = encodeURIComponent(prDetails.base?.ref || '');
+                const headRef = encodeURIComponent(prDetails.head?.ref || '');
+                if (baseRef && headRef) {
+                    try {
+                        compareInfo = await this.auth.makeRequest<GiteaCompareResponse>(
+                            `/api/v1/repos/${owner}/${repo}/compare/${baseRef}...${headRef}`,
+                        );
+                    } catch {
+                        compareInfo = null;
                     }
-                } catch (e) {
-                    void (e);
-                    compareInfo = null;
                 }
 
-                // If PR has conflicts, identify conflicting files
                 if (prDetails.mergeable === false && files && files.length > 0) {
-                    // Files with conflicts have the standard merge conflict markers:
-                    // <<<<<<< HEAD (or current branch)
-                    // =======
-                    // >>>>>>> origin/branch (or incoming branch)
                     conflictingFiles = files.filter(file => {
                         if (file.status === 'conflicted') {
                             return true;
                         }
-                        
-                        // Check for presence of all three conflict markers in the patch
+
                         if (file.patch) {
-                            const hasConflictStart = /^<{7} /m.test(file.patch);  // <<<<<<< (7 chars + space)
-                            const hasConflictSeparator = /^={7}$/m.test(file.patch);  // ======= (7 chars exactly)
-                            const hasConflictEnd = /^>{7} /m.test(file.patch);  // >>>>>>> (7 chars + space)
-                            
+                            const hasConflictStart = /^<{7} /m.test(file.patch);
+                            const hasConflictSeparator = /^={7}$/m.test(file.patch);
+                            const hasConflictEnd = /^>{7} /m.test(file.patch);
                             return hasConflictStart && hasConflictSeparator && hasConflictEnd;
                         }
-                        
+
                         return false;
                     });
-                    
-                    // Do NOT fall back to all files; if we cannot determine specifics,
-                    // leave the list empty and show a generic guidance message in the UI.
                 }
 
-                // Some Gitea endpoints don't return commit count; fall back to commits list length
                 prDetails.commits = typeof prDetails.commits === 'number'
                     ? prDetails.commits
                     : (Array.isArray(commitsList) ? commitsList.length : 0);
 
-                // Fetch the actual diff content
                 try {
-                    diffContent = await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}.diff`, {
-                        headers: { 'Accept': 'text/plain' }
+                    const diffContent = await this.auth.makeRequest<string>(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}.diff`, {
+                        headers: { 'Accept': 'text/plain' },
                     });
 
-                    // Parse diff and attach to files
                     if (typeof diffContent === 'string') {
                         files = this.parseDiffToFiles(files, diffContent);
                     }
@@ -175,19 +181,18 @@ class PullRequestWebviewProvider {
                     console.error('Failed to fetch diff:', diffError);
                 }
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to load PR #${prNumber}: ${error.message}`);
+                vscode.window.showErrorMessage(`Failed to load PR #${prNumber}: ${errorMessage(error)}`);
                 return;
             }
 
-            // Create panel
             const panel = vscode.window.createWebviewPanel(
                 'giteaPullRequest',
                 `PR #${prNumber}: ${prDetails.title}`,
                 vscode.ViewColumn.One,
                 {
                     enableScripts: true,
-                    retainContextWhenHidden: true
-                }
+                    retainContextWhenHidden: true,
+                },
             );
 
             this._panels.set(panelKey, panel);
@@ -196,26 +201,25 @@ class PullRequestWebviewProvider {
                 this._panels.delete(panelKey);
             });
 
-            // Handle messages from webview
             panel.webview.onDidReceiveMessage(
-                async message => {
+                async (message: WebviewMessage) => {
                     try {
                         switch (message.command) {
                             case 'addComment':
-                                await this.addComment(owner, repo, prNumber, message.body);
+                                await this.addComment(owner, repo, prNumber, message.body || '');
                                 break;
                             case 'addReview':
-                                await this.addReview(owner, repo, prNumber, message.body, message.event);
+                                await this.addReview(owner, repo, prNumber, message.body || '', message.event || 'COMMENT');
                                 break;
                             case 'mergePR':
-                                await this.mergePullRequest(owner, repo, prNumber, message.mergeMethod);
+                                await this.mergePullRequest(owner, repo, prNumber, message.mergeMethod || 'merge');
                                 break;
                             case 'closePR':
                                 await this.closePullRequest(owner, repo, prNumber);
                                 break;
                             case 'createBranch':
                                 vscode.commands.executeCommand('gitea.createBranchFromPR', {
-                                    metadata: { repository: `${owner}/${repo}`, number: prNumber }
+                                    metadata: { repository: `${owner}/${repo}`, number: prNumber },
                                 });
                                 break;
                             case 'openInBrowser':
@@ -227,98 +231,106 @@ class PullRequestWebviewProvider {
                         }
                     } catch (error) {
                         console.error('Error handling webview message:', error);
-                        vscode.window.showErrorMessage(`Error: ${error.message}`);
+                        vscode.window.showErrorMessage(`Error: ${errorMessage(error)}`);
                     }
-                }
+                },
             );
 
-            panel.webview.html = await embedGiteaImages(this.auth, this.getPullRequestHtml(panel.webview, prDetails, comments, reviews, files, commitsList, conflictingFiles, compareInfo));
+            panel.webview.html = await embedGiteaImages(
+                this.auth,
+                this.getPullRequestHtml(panel.webview, prDetails, comments, reviews, files, commitsList, conflictingFiles, compareInfo),
+            );
         } catch (error) {
             console.error('Failed to show pull request:', error);
-            vscode.window.showErrorMessage(`Failed to show pull request: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to show pull request: ${errorMessage(error)}`);
         }
     }
 
-    async addComment(owner, repo, prNumber, body) {
+    async addComment(owner: string, repo: string, prNumber: number, body: string): Promise<void> {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${prNumber}/comments`, {
                 method: 'POST',
-                body: { body }
+                body: { body },
             });
             vscode.window.showInformationMessage('Comment added successfully');
-            // Refresh the webview
             await this.showPullRequest(prNumber, `${owner}/${repo}`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to add comment: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to add comment: ${errorMessage(error)}`);
         }
     }
 
-    async addReview(owner, repo, prNumber, body, event) {
+    async addReview(owner: string, repo: string, prNumber: number, body: string, event: string): Promise<void> {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/reviews`, {
                 method: 'POST',
-                body: { body, event }
+                body: { body, event },
             });
             vscode.window.showInformationMessage(`Review ${event.toLowerCase()} successfully`);
             await this.showPullRequest(prNumber, `${owner}/${repo}`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to submit review: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to submit review: ${errorMessage(error)}`);
         }
     }
 
-    async mergePullRequest(owner, repo, prNumber, mergeMethod = 'merge') {
+    async mergePullRequest(owner: string, repo: string, prNumber: number, mergeMethod = 'merge'): Promise<void> {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/merge`, {
                 method: 'POST',
-                body: { Do: mergeMethod }
+                body: { Do: mergeMethod },
             });
             vscode.window.showInformationMessage(`PR #${prNumber} merged successfully`);
             await this.showPullRequest(prNumber, `${owner}/${repo}`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to merge PR: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to merge PR: ${errorMessage(error)}`);
         }
     }
 
-    async closePullRequest(owner, repo, prNumber) {
+    async closePullRequest(owner: string, repo: string, prNumber: number): Promise<void> {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}`, {
                 method: 'PATCH',
-                body: { state: 'closed' }
+                body: { state: 'closed' },
             });
             vscode.window.showInformationMessage(`PR #${prNumber} closed`);
             await this.showPullRequest(prNumber, `${owner}/${repo}`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to close PR: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to close PR: ${errorMessage(error)}`);
         }
     }
 
-    async updatePullRequestBranch(owner, repo, prNumber, style = 'merge') {
+    async updatePullRequestBranch(owner: string, repo: string, prNumber: number, style = 'merge'): Promise<void> {
         try {
-            // Preferred Gitea endpoint to update a PR's branch by merging base into head
             try {
                 await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/update`, {
                     method: 'POST',
-                    body: { style }
+                    body: { style },
                 });
-            } catch (firstErr) {
-                void (firstErr);
-                // Fallback: some instances might expect a different casing/key
+            } catch {
                 await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/update`, {
                     method: 'POST',
-                    body: { Style: style }
+                    body: { Style: style },
                 });
             }
 
             vscode.window.showInformationMessage('Branch updated from base via merge');
             await this.showPullRequest(prNumber, `${owner}/${repo}`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to update branch: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to update branch: ${errorMessage(error)}`);
         }
     }
 
-    getPullRequestHtml(webview, pr, comments, reviews, files = [], commits = [], conflictingFiles = [], compareInfo = null) {
+    getPullRequestHtml(
+        _webview: vscode.Webview,
+        pr: GiteaPullRequest,
+        comments: GiteaComment[] = [],
+        reviews: GiteaReview[] = [],
+        files: GiteaFile[] = [],
+        commits: GiteaCommit[] = [],
+        conflictingFiles: GiteaFile[] = [],
+        compareInfo: GiteaCompareResponse | null = null,
+    ): string {
         const stateOpen = pr.state === 'open';
-        const stateMerged = !!pr.merged;
+        const stateMerged = Boolean(pr.merged);
         const stateText = stateOpen ? 'Open' : stateMerged ? 'Merged' : 'Closed';
         const behindCount = compareInfo
             ? (Number(compareInfo.behind_by) || Number(compareInfo.behind) || Number(compareInfo.behindBy) || 0)
@@ -336,7 +348,7 @@ class PullRequestWebviewProvider {
   <div class="comment-box">
     <div class="comment-header">
       <span class="ch-author">${this.escapeHtml(c.user?.login || 'Unknown')}</span>
-      <span class="ch-meta">${new Date(c.created_at).toLocaleString()}${edited}</span>
+      <span class="ch-meta">${new Date(c.created_at || '').toLocaleString()}${edited}</span>
     </div>
     <div class="comment-body md">${this.renderMarkdown(c.body || '')}</div>
   </div>
@@ -349,7 +361,7 @@ class PullRequestWebviewProvider {
                 const sha = c.sha?.substring(0, 7) || 'unknown';
                 const msg = this.escapeHtml(c.commit?.message || c.message || 'No message');
                 const author = this.escapeHtml(c.commit?.author?.name || c.author?.login || 'Unknown');
-                const date = new Date(c.commit?.author?.date || c.created_at).toLocaleString();
+                const date = new Date(c.commit?.author?.date || c.created_at || '').toLocaleString();
                 return `<div class="commit-row"><div class="commit-msg">${msg}</div><div class="commit-meta">${author} · <span class="commit-sha">${sha}</span> · ${date}</div></div>`;
             }).join('')
             : '<p style="color:var(--fg2)">No commits.</p>';
@@ -362,7 +374,7 @@ class PullRequestWebviewProvider {
 <div class="file-item">
   <div class="file-hdr" onclick="toggleFile(${i})">
     <span style="margin-right:8px">${icon}</span>
-    <span class="file-name">${this.escapeHtml(file.filename)}</span>
+    <span class="file-name">${this.escapeHtml(file.filename || '')}</span>
     <span class="file-stats"><span class="add">+${file.additions || 0}</span> <span class="del">-${file.deletions || 0}</span></span>
   </div>
   <div class="file-diff" id="fdiff-${i}" style="display:none">${file.patch ? this.renderDiff(file.patch) : '<span style="color:var(--fg2);padding:8px;display:block">No diff available</span>'}</div>
@@ -382,7 +394,7 @@ class PullRequestWebviewProvider {
   <div class="comment-box ${cls}">
     <div class="comment-header">
       <span class="ch-author">${this.escapeHtml(r.user?.login || 'Unknown')}</span>
-      <span class="ch-meta">${lbl} · ${new Date(r.submitted_at).toLocaleString()}</span>
+      <span class="ch-meta">${lbl} · ${new Date(r.submitted_at || '').toLocaleString()}</span>
     </div>
     ${r.body ? `<div class="comment-body md">${this.renderMarkdown(r.body)}</div>` : ''}
   </div>
@@ -391,7 +403,7 @@ class PullRequestWebviewProvider {
             : '';
 
         const labelsHtml = (pr.labels && pr.labels.length > 0)
-            ? pr.labels.map(l => `<span class="label-pill" style="background:#${this.escapeHtml(l.color)};color:${this.getContrastColor(l.color)}">${this.escapeHtml(l.name)}</span>`).join('')
+            ? pr.labels.map(l => `<span class="label-pill" style="background:#${this.escapeHtml(l.color || '')};color:${this.getContrastColor(l.color || '')}">${this.escapeHtml(l.name)}</span>`).join('')
             : '<span style="color:var(--fg2);font-size:12px">None yet</span>';
 
         const reviewersHtml = (pr.requested_reviewers && pr.requested_reviewers.length > 0)
@@ -423,7 +435,7 @@ class PullRequestWebviewProvider {
 <div class="merge-box merge-conflict">
   <div class="merge-box-hdr"><span class="merge-icon">✗</span><span>This branch has conflicts that must be resolved</span></div>
   ${conflictingFiles.length > 0
-        ? `<ul class="conflict-files">${conflictingFiles.map(f => `<li>${this.escapeHtml(f.filename)}</li>`).join('')}</ul>`
+        ? `<ul class="conflict-files">${conflictingFiles.map(f => `<li>${this.escapeHtml(f.filename || '')}</li>`).join('')}</ul>`
         : '<p style="color:var(--fg2);font-size:13px;margin:8px 0 0">Conflicts detected. Check the PR on your server for exact paths.</p>'}
   <div class="merge-actions" style="margin-top:12px">
     <button class="btn btn-danger" onclick="closePR()">Close PR</button>
@@ -559,7 +571,7 @@ body{font-family:var(--vscode-font-family);font-size:14px;color:var(--fg);backgr
     <span class="badge ${stateOpen ? 'badge-open' : stateMerged ? 'badge-merged' : 'badge-closed'}">${stateOpen ? svgOpen : stateMerged ? svgMerged : svgClosed} ${stateText}</span>
     ${pr.draft ? '<span class="badge badge-draft">Draft</span>' : ''}
     <span><strong>${this.escapeHtml(pr.user?.login || 'Unknown')}</strong> wants to merge <strong>${this.escapeHtml(pr.head?.ref || 'unknown')}</strong> into <strong>${this.escapeHtml(pr.base?.ref || 'unknown')}</strong></span>
-    <span>· ${new Date(pr.created_at).toLocaleString()}</span>
+    <span>· ${new Date(pr.created_at || '').toLocaleString()}</span>
   </div>
 </div>
 
@@ -596,7 +608,7 @@ ${isOutOfDate ? `
           <div class="comment-box">
             <div class="comment-header">
               <span class="ch-author">${this.escapeHtml(pr.user?.login || 'Unknown')}</span>
-              <span class="ch-meta">opened this · ${new Date(pr.created_at).toLocaleString()}</span>
+              <span class="ch-meta">opened this · ${new Date(pr.created_at || '').toLocaleString()}</span>
             </div>
             <div class="comment-body md">${this.renderMarkdown(pr.body)}</div>
           </div>
@@ -650,7 +662,7 @@ ${isOutOfDate ? `
       <div class="sb-section">
         <div class="sb-heading">Activity</div>
         <div class="sb-body" style="font-size:12px">
-          <div class="sb-item"><span style="color:var(--fg2)">Opened:</span> ${new Date(pr.created_at).toLocaleDateString()}</div>
+          <div class="sb-item"><span style="color:var(--fg2)">Opened:</span> ${new Date(pr.created_at || '').toLocaleDateString()}</div>
           ${pr.updated_at ? `<div class="sb-item"><span style="color:var(--fg2)">Updated:</span> ${new Date(pr.updated_at).toLocaleDateString()}</div>` : ''}
           ${pr.merged_at ? `<div class="sb-item"><span style="color:var(--fg2)">Merged:</span> ${new Date(pr.merged_at).toLocaleDateString()}</div>` : ''}
           ${pr.closed_at && !pr.merged_at ? `<div class="sb-item"><span style="color:var(--fg2)">Closed:</span> ${new Date(pr.closed_at).toLocaleDateString()}</div>` : ''}
@@ -729,7 +741,7 @@ function dlg(title, msg, cb) {
 </html>`;
     }
 
-    escapeHtml(text) {
+    escapeHtml(text: string): string {
         if (!text) return '';
         return text
             .replace(/&/g, '&amp;')
@@ -739,7 +751,7 @@ function dlg(title, msg, cb) {
             .replace(/'/g, '&#039;');
     }
 
-    getContrastColor(hexColor) {
+    getContrastColor(hexColor: string): string {
         try {
             if (!hexColor) return '#000000';
             const hex = hexColor.replace('#', '');
@@ -755,17 +767,18 @@ function dlg(title, msg, cb) {
         }
     }
 
-    renderMarkdown(text) {
+    renderMarkdown(text: string): string {
         if (!text) return '';
         try {
-            return marked.parse(text);
+            const result = marked.parse(text);
+            return typeof result === 'string' ? result : '';
         } catch (error) {
             void (error);
             return this.escapeHtml(text);
         }
     }
 
-    renderDiff(patch) {
+    renderDiff(patch: string): string {
         if (!patch) return '';
         const lines = patch.split('\n');
         return lines.map(line => {
@@ -778,18 +791,15 @@ function dlg(title, msg, cb) {
         }).join('');
     }
 
-    getFileStatus(file) {
-        // Check if status is provided by API
+    getFileStatus(file: GiteaFile): string {
         if (file.status) {
             return file.status;
         }
 
-        // Determine status from file properties
         if (file.previous_filename || file.old_name) {
             return 'renamed';
         }
 
-        // Check additions and deletions
         const additions = file.additions || 0;
         const deletions = file.deletions || 0;
 
@@ -801,14 +811,10 @@ function dlg(title, msg, cb) {
             return 'deleted';
         }
 
-        if (additions > 0 || deletions > 0) {
-            return 'modified';
-        }
-
-        return 'modified'; // Default
+        return 'modified';
     }
 
-    getFileIcon(status) {
+    getFileIcon(status: string): string {
         switch (status) {
             case 'added': return '✚';
             case 'modified': return '✎';
@@ -818,29 +824,24 @@ function dlg(title, msg, cb) {
         }
     }
 
-    parseDiffToFiles(files, diffContent) {
+    parseDiffToFiles(files: GiteaFile[], diffContent: string): GiteaFile[] {
         if (!diffContent || !files) return files;
 
-        // Parse the unified diff format
-        const fileDiffs = {};
+        const fileDiffs: Record<string, string> = {};
         const diffBlocks = diffContent.split(/\ndiff --git /);
 
         for (let i = 0; i < diffBlocks.length; i++) {
             const block = diffBlocks[i];
             if (!block.trim()) continue;
 
-            // For the first block, it might not have the leading "diff --git"
-            const fullBlock = i === 0 && !block.startsWith('a/') ? block : 'a/' + block;
+            const fullBlock = i === 0 && !block.startsWith('a/') ? block : `a/${block}`;
 
-            // Extract filename - try multiple patterns
-            let filename = null;
+            let filename: string | null = null;
 
-            // Pattern 1: standard diff --git a/file b/file
             let fileMatch = fullBlock.match(/^a\/(.+?) b\/(.+?)$/m);
             if (fileMatch) {
                 filename = fileMatch[2];
             } else {
-                // Pattern 2: try to find +++ b/filename
                 fileMatch = fullBlock.match(/^\+\+\+ b\/(.+?)$/m);
                 if (fileMatch) {
                     filename = fileMatch[1];
@@ -849,7 +850,6 @@ function dlg(title, msg, cb) {
 
             if (!filename) continue;
 
-            // Extract the actual diff content (everything from the first @@ to the end)
             const lines = fullBlock.split('\n');
             const diffStartIndex = lines.findIndex(line => line.startsWith('@@'));
 
@@ -857,8 +857,6 @@ function dlg(title, msg, cb) {
                 const patchContent = lines.slice(diffStartIndex).join('\n');
                 fileDiffs[filename] = patchContent;
             } else {
-                // If no @@ found, the file might be new or binary
-                // Try to capture everything after the +++ line
                 const plusIndex = lines.findIndex(line => line.startsWith('+++'));
                 if (plusIndex !== -1 && plusIndex < lines.length - 1) {
                     const patchContent = lines.slice(plusIndex + 1).join('\n');
@@ -869,44 +867,47 @@ function dlg(title, msg, cb) {
             }
         }
 
-        // Attach patches to files
         return files.map(file => {
-            const patch = fileDiffs[file.filename] || file.patch || '';
+            const patch = (file.filename && fileDiffs[file.filename]) || file.patch || '';
             return {
                 ...file,
-                patch: patch
+                patch,
             };
         });
     }
 }
 
-class IssueWebviewProvider {
-    constructor(auth) {
+export class IssueWebviewProvider {
+    private readonly auth: GiteaAuth;
+    private readonly _panels = new Map<string, vscode.WebviewPanel>();
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
-        this._panels = new Map();
     }
 
-    async showIssue(issueNumber, repository) {
+    async showIssue(issueNumber: number, repository: string): Promise<void> {
         try {
             const panelKey = `${repository}#${issueNumber}`;
 
-            if (this._panels.has(panelKey)) {
-                const panel = this._panels.get(panelKey);
-                panel.reveal(vscode.ViewColumn.One);
+            const existing = this._panels.get(panelKey);
+            if (existing) {
+                existing.reveal(vscode.ViewColumn.One);
                 return;
             }
 
             const [owner, repo] = repository.split('/');
-            let issueDetails, comments, currentUser;
+            let issueDetails: GiteaIssue;
+            let comments: GiteaComment[] = [];
+            let currentUser: GiteaUser | null = null;
 
             try {
                 [issueDetails, comments, currentUser] = await Promise.all([
-                    this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}`),
-                    this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`),
-                    this.auth.makeRequest('/api/v1/user').catch(() => null)
+                    this.auth.makeRequest<GiteaIssue>(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}`),
+                    this.auth.makeRequest<GiteaComment[]>(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`),
+                    this.auth.makeRequest<GiteaUser>('/api/v1/user').catch(() => null),
                 ]);
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to load Issue #${issueNumber}: ${error.message}`);
+                vscode.window.showErrorMessage(`Failed to load Issue #${issueNumber}: ${errorMessage(error)}`);
                 return;
             }
 
@@ -916,8 +917,8 @@ class IssueWebviewProvider {
                 vscode.ViewColumn.One,
                 {
                     enableScripts: true,
-                    retainContextWhenHidden: true
-                }
+                    retainContextWhenHidden: true,
+                },
             );
 
             this._panels.set(panelKey, panel);
@@ -927,17 +928,17 @@ class IssueWebviewProvider {
             });
 
             panel.webview.onDidReceiveMessage(
-                async message => {
+                async (message: WebviewMessage) => {
                     try {
                         switch (message.command) {
                             case 'addComment':
-                                await this.addComment(owner, repo, issueNumber, message.body, panel, currentUser);
+                                await this.addComment(owner, repo, issueNumber, message.body || '', panel, currentUser);
                                 break;
                             case 'editComment':
-                                await this.editComment(owner, repo, issueNumber, message.commentId, message.body, panel, currentUser);
+                                await this.editComment(owner, repo, issueNumber, message.commentId || 0, message.body || '', panel, currentUser);
                                 break;
                             case 'deleteComment':
-                                await this.deleteComment(owner, repo, issueNumber, message.commentId, panel, currentUser);
+                                await this.deleteComment(owner, repo, issueNumber, message.commentId || 0, panel, currentUser);
                                 break;
                             case 'refresh':
                                 await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
@@ -952,7 +953,7 @@ class IssueWebviewProvider {
                                 break;
                             case 'createBranch':
                                 vscode.commands.executeCommand('gitea.createBranchFromIssue', {
-                                    metadata: { repository: `${owner}/${repo}`, number: issueNumber }
+                                    metadata: { repository: `${owner}/${repo}`, number: issueNumber },
                                 });
                                 break;
                             case 'openInBrowser':
@@ -961,105 +962,133 @@ class IssueWebviewProvider {
                         }
                     } catch (error) {
                         console.error('Error handling webview message:', error);
-                        vscode.window.showErrorMessage(`Error: ${error.message}`);
+                        vscode.window.showErrorMessage(`Error: ${errorMessage(error)}`);
                     }
-                }
+                },
             );
 
             panel.webview.html = await embedGiteaImages(this.auth, this.getIssueHtml(panel.webview, issueDetails, comments, currentUser));
         } catch (error) {
             console.error('Failed to show issue:', error);
-            vscode.window.showErrorMessage(`Failed to show issue: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to show issue: ${errorMessage(error)}`);
         }
     }
 
-    async addComment(owner, repo, issueNumber, body, panel, currentUser) {
+    async addComment(
+        owner: string,
+        repo: string,
+        issueNumber: number,
+        body: string,
+        panel: vscode.WebviewPanel,
+        currentUser: GiteaUser | null,
+    ): Promise<void> {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
                 method: 'POST',
-                body: { body }
+                body: { body },
             });
             vscode.window.showInformationMessage('Comment added successfully');
             await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to add comment: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to add comment: ${errorMessage(error)}`);
         }
     }
 
-    async editComment(owner, repo, issueNumber, commentId, body, panel, currentUser) {
+    async editComment(
+        owner: string,
+        repo: string,
+        issueNumber: number,
+        commentId: number,
+        body: string,
+        panel: vscode.WebviewPanel,
+        currentUser: GiteaUser | null,
+    ): Promise<void> {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/comments/${commentId}`, {
                 method: 'PATCH',
-                body: { body }
+                body: { body },
             });
             vscode.window.showInformationMessage('Comment updated');
             await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to edit comment: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to edit comment: ${errorMessage(error)}`);
         }
     }
 
-    async deleteComment(owner, repo, issueNumber, commentId, panel, currentUser) {
+    async deleteComment(
+        owner: string,
+        repo: string,
+        issueNumber: number,
+        commentId: number,
+        panel: vscode.WebviewPanel,
+        currentUser: GiteaUser | null,
+    ): Promise<void> {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/comments/${commentId}`, {
-                method: 'DELETE'
+                method: 'DELETE',
             });
             vscode.window.showInformationMessage('Comment deleted');
             await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to delete comment: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to delete comment: ${errorMessage(error)}`);
         }
     }
 
-    async _refreshPanel(panel, owner, repo, issueNumber, currentUser) {
+    async _refreshPanel(
+        panel: vscode.WebviewPanel,
+        owner: string,
+        repo: string,
+        issueNumber: number,
+        currentUser: GiteaUser | null,
+    ): Promise<void> {
         try {
             const [issueDetails, comments] = await Promise.all([
-                this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}`),
-                this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`)
+                this.auth.makeRequest<GiteaIssue>(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}`),
+                this.auth.makeRequest<GiteaComment[]>(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}/comments`),
             ]);
             panel.title = `Issue #${issueNumber}: ${issueDetails.title}`;
             panel.webview.html = await embedGiteaImages(this.auth, this.getIssueHtml(panel.webview, issueDetails, comments, currentUser));
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to refresh issue: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to refresh issue: ${errorMessage(error)}`);
         }
     }
 
-    async closeIssue(owner, repo, issueNumber) {
+    async closeIssue(owner: string, repo: string, issueNumber: number): Promise<void> {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}`, {
                 method: 'PATCH',
-                body: { state: 'closed' }
+                body: { state: 'closed' },
             });
             vscode.window.showInformationMessage(`Issue #${issueNumber} closed successfully`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to close issue: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to close issue: ${errorMessage(error)}`);
         }
     }
 
-    async reopenIssue(owner, repo, issueNumber) {
+    async reopenIssue(owner: string, repo: string, issueNumber: number): Promise<void> {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues/${issueNumber}`, {
                 method: 'PATCH',
-                body: { state: 'open' }
+                body: { state: 'open' },
             });
             vscode.window.showInformationMessage(`Issue #${issueNumber} reopened successfully`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to reopen issue: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to reopen issue: ${errorMessage(error)}`);
         }
     }
 
-    getIssueHtml(webview, issue, comments, currentUser) {
+    getIssueHtml(_webview: vscode.Webview, issue: GiteaIssue, comments: GiteaComment[] = [], currentUser: GiteaUser | null = null): string {
         const currentLogin = currentUser?.login || null;
         const stateOpen = issue.state === 'open';
         const commentCount = comments?.length || 0;
 
         const labelsHtml = (issue.labels && issue.labels.length > 0)
-            ? issue.labels.map(l => `<span class="label-pill" style="background:#${this.escapeHtml(l.color)};color:${this.getContrastColor(l.color)}">${this.escapeHtml(l.name)}</span>`).join('')
+            ? issue.labels.map(l => `<span class="label-pill" style="background:#${this.escapeHtml(l.color || '')};color:${this.getContrastColor(l.color || '')}">${this.escapeHtml(l.name)}</span>`).join('')
             : '';
 
         const commentsHtml = (comments && comments.length > 0)
             ? comments.map(c => {
-                const isOwn = currentLogin && c.user?.login === currentLogin;
+                const isOwn = Boolean(currentLogin && c.user?.login === currentLogin);
                 const cid = `c${c.id}`;
                 return `
         <div class="tl-item" id="${cid}">
@@ -1067,7 +1096,7 @@ class IssueWebviewProvider {
           <div class="comment-box">
             <div class="comment-header">
               <span class="comment-author">${this.escapeHtml(c.user?.login || 'Unknown')}</span>
-              <span class="comment-meta">commented on ${new Date(c.created_at).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})}${c.updated_at && c.updated_at !== c.created_at ? ' &middot; edited' : ''}</span>
+              <span class="comment-meta">commented on ${new Date(c.created_at || '').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}${c.updated_at && c.updated_at !== c.created_at ? ' &middot; edited' : ''}</span>
               ${isOwn ? `<div class="hdr-btns"><button class="btn btn-ghost btn-sm" onclick="startEdit('${cid}')">Edit</button><button class="btn btn-dghost btn-sm" onclick="delComment(${c.id})">Delete</button></div>` : ''}
             </div>
             <div class="comment-body md" id="body-${cid}">${this.renderMarkdown(c.body || '')}</div>
@@ -1083,10 +1112,10 @@ class IssueWebviewProvider {
             }).join('')
             : '';
 
-        const participantLogins = (comments || []).reduce((acc, c) => {
+        const participantLogins = (comments || []).reduce((acc: string[], c) => {
             if (c.user?.login && !acc.includes(c.user.login)) acc.push(c.user.login);
             return acc;
-        }, [issue.user?.login].filter(Boolean));
+        }, [issue.user?.login].filter((l): l is string => Boolean(l)));
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -1192,7 +1221,7 @@ button{font-family:inherit;cursor:pointer;border:none;border-radius:6px;font-siz
         </svg>
         ${stateOpen ? 'Open' : 'Closed'}
       </span>
-      <span><strong>${this.escapeHtml(issue.user?.login || 'Unknown')}</strong> opened this issue ${new Date(issue.created_at).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'})} &middot; ${commentCount} comment${commentCount !== 1 ? 's' : ''}</span>
+      <span><strong>${this.escapeHtml(issue.user?.login || 'Unknown')}</strong> opened this issue ${new Date(issue.created_at || '').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })} &middot; ${commentCount} comment${commentCount !== 1 ? 's' : ''}</span>
     </div>
     ${labelsHtml ? `<div class="gh-labels-row">${labelsHtml}</div>` : ''}
   </div>
@@ -1205,7 +1234,7 @@ button{font-family:inherit;cursor:pointer;border:none;border-radius:6px;font-siz
           <div class="comment-box">
             <div class="comment-header">
               <span class="comment-author">${this.escapeHtml(issue.user?.login || 'Unknown')}</span>
-              <span class="comment-meta">opened on ${new Date(issue.created_at).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'})}</span>
+              <span class="comment-meta">opened on ${new Date(issue.created_at || '').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
             </div>
             <div class="comment-body md">${issue.body ? this.renderMarkdown(issue.body) : '<em style="color:var(--muted)">No description provided.</em>'}</div>
           </div>
@@ -1248,7 +1277,7 @@ button{font-family:inherit;cursor:pointer;border:none;border-radius:6px;font-siz
           : '<span class="sb-empty">No milestone</span>'
         }
       </div>
-      ${issue.due_date ? `<div class="sb-section"><span class="sb-heading">Due date</span><span>${new Date(issue.due_date).toLocaleDateString('en-US', {year:'numeric',month:'short',day:'numeric'})}</span></div>` : ''}
+      ${issue.due_date ? `<div class="sb-section"><span class="sb-heading">Due date</span><span>${new Date(issue.due_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span></div>` : ''}
       <div class="sb-section">
         <span class="sb-heading">Participants</span>
         <div style="display:flex;flex-wrap:wrap;gap:4px">
@@ -1313,8 +1342,7 @@ function dlg(title, msg, cb) {
 </html>`;
     }
 
-
-    escapeHtml(text) {
+    escapeHtml(text: string): string {
         if (!text) return '';
         return text
             .replace(/&/g, '&amp;')
@@ -1324,7 +1352,7 @@ function dlg(title, msg, cb) {
             .replace(/'/g, '&#039;');
     }
 
-    getContrastColor(hexColor) {
+    getContrastColor(hexColor: string): string {
         try {
             if (!hexColor) return '#000000';
             const hex = hexColor.replace('#', '');
@@ -1340,17 +1368,18 @@ function dlg(title, msg, cb) {
         }
     }
 
-    renderMarkdown(text) {
+    renderMarkdown(text: string): string {
         if (!text) return '';
         try {
-            return marked.parse(text);
+            const result = marked.parse(text);
+            return typeof result === 'string' ? result : '';
         } catch (error) {
             void (error);
             return this.escapeHtml(text);
         }
     }
 
-    async showCreateIssue(repositories) {
+    async showCreateIssue(repositories: GiteaRepository[]): Promise<void> {
         try {
             const panel = vscode.window.createWebviewPanel(
                 'giteaCreateIssue',
@@ -1358,21 +1387,23 @@ function dlg(title, msg, cb) {
                 vscode.ViewColumn.One,
                 {
                     enableScripts: true,
-                    retainContextWhenHidden: true
-                }
+                    retainContextWhenHidden: true,
+                },
             );
 
-            panel.webview.onDidReceiveMessage(async message => {
+            panel.webview.onDidReceiveMessage(async (message: WebviewMessage) => {
                 try {
                     switch (message.command) {
-                        case 'loadBranches':
-                            const branches = await this.loadBranches(message.repository);
+                        case 'loadBranches': {
+                            const branches = await this.loadBranches(message.repository || '');
                             panel.webview.postMessage({ command: 'branchesLoaded', branches });
                             break;
-                        case 'checkDuplicates':
-                            const duplicates = await this.checkDuplicates(message.repository, message.title, message.body);
+                        }
+                        case 'checkDuplicates': {
+                            const duplicates = await this.checkDuplicates(message.repository || '', message.title || '', message.body || '');
                             panel.webview.postMessage({ command: 'duplicatesChecked', duplicates });
                             break;
+                        }
                         case 'createIssue':
                             await this.createIssue(message.data);
                             panel.dispose();
@@ -1380,50 +1411,50 @@ function dlg(title, msg, cb) {
                     }
                 } catch (error) {
                     console.error('Error handling webview message:', error);
-                    vscode.window.showErrorMessage(`Error: ${error.message}`);
+                    vscode.window.showErrorMessage(`Error: ${errorMessage(error)}`);
                 }
             });
 
             panel.webview.html = this.getCreateIssueHtml(panel.webview, repositories);
         } catch (error) {
             console.error('Failed to show create issue form:', error);
-            vscode.window.showErrorMessage(`Failed to show create issue form: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to show create issue form: ${errorMessage(error)}`);
         }
     }
 
-    async loadBranches(repository) {
+    async loadBranches(repository: string): Promise<string[]> {
         try {
             const [owner, repo] = repository.split('/');
-            const branches = await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/branches`);
+            const branches = await this.auth.makeRequest<GiteaBranch[]>(`/api/v1/repos/${owner}/${repo}/branches`);
             return branches.map(b => b.name);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to load branches: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to load branches: ${errorMessage(error)}`);
             return [];
         }
     }
 
     /**
-     * Calculate similarity score between two strings (0 to 1)
+     * Calculate similarity score between two strings (0 to 1).
      */
-    calculateStringSimilarity(str1, str2) {
+    calculateStringSimilarity(str1: string, str2: string): number {
         const s1 = String(str1 || '').toLowerCase();
         const s2 = String(str2 || '').toLowerCase();
-        
+
         if (s1 === s2) return 1;
         if (s1.length === 0 || s2.length === 0) return 0;
-        
+
         const longer = s1.length > s2.length ? s1 : s2;
         const shorter = s1.length > s2.length ? s2 : s1;
-        
+
         const editDistance = this.getLevenshteinDistance(shorter, longer);
         return (longer.length - editDistance) / longer.length;
     }
 
     /**
-     * Calculate Levenshtein distance between two strings
+     * Calculate Levenshtein distance between two strings.
      */
-    getLevenshteinDistance(s1, s2) {
-        const costs = [];
+    getLevenshteinDistance(s1: string, s2: string): number {
+        const costs: number[] = [];
         for (let i = 0; i <= s1.length; i++) {
             let lastValue = i;
             for (let j = 0; j <= s2.length; j++) {
@@ -1444,38 +1475,34 @@ function dlg(title, msg, cb) {
     }
 
     /**
-     * Check for duplicate issues
+     * Check for duplicate issues.
      */
-    async checkDuplicates(repository, title, body) {
+    async checkDuplicates(repository: string, title: string, body: string): Promise<DuplicateMatch[]> {
         try {
             const [owner, repo] = repository.split('/');
-            const existingIssues = await this.auth.makeRequest(
-                `/api/v1/repos/${owner}/${repo}/issues?state=all&limit=100`
+            const existingIssues = await this.auth.makeRequest<GiteaIssue[]>(
+                `/api/v1/repos/${owner}/${repo}/issues?state=all&limit=100`,
             );
-            
+
             if (!Array.isArray(existingIssues) || existingIssues.length === 0) {
                 return [];
             }
 
-            const duplicates = [];
+            const duplicates: DuplicateMatch[] = [];
             const threshold = 0.7;
-            
+
             existingIssues.forEach(existingIssue => {
-                // Skip pull requests
                 if (existingIssue.pull_request) return;
-                
-                // Calculate title similarity
+
                 const titleSimilarity = this.calculateStringSimilarity(title, existingIssue.title);
-                
-                // Calculate description similarity (if both have descriptions)
+
                 let bodySimilarity = 0;
                 if (body && existingIssue.body) {
                     bodySimilarity = this.calculateStringSimilarity(body, existingIssue.body);
                 }
-                
-                // Calculate combined similarity (weighted: 70% title, 30% body)
+
                 const combinedScore = titleSimilarity * 0.7 + bodySimilarity * 0.3;
-                
+
                 if (combinedScore >= threshold) {
                     duplicates.push({
                         number: existingIssue.number,
@@ -1484,12 +1511,11 @@ function dlg(title, msg, cb) {
                         url: existingIssue.html_url,
                         similarity: Math.round(combinedScore * 100),
                         created_at: existingIssue.created_at,
-                        updated_at: existingIssue.updated_at
+                        updated_at: existingIssue.updated_at,
                     });
                 }
             });
-            
-            // Sort by similarity score (highest first)
+
             duplicates.sort((a, b) => b.similarity - a.similarity);
             return duplicates;
         } catch (error) {
@@ -1498,34 +1524,36 @@ function dlg(title, msg, cb) {
         }
     }
 
-    async createIssue(data) {
+    async createIssue(data?: WebviewMessage['data']): Promise<void> {
         try {
+            if (!data || !data.repository || !data.title) {
+                throw new Error('Missing repository or title');
+            }
             const [owner, repo] = data.repository.split('/');
 
-            const requestBody = {
+            const requestBody: Record<string, unknown> = {
                 title: data.title,
                 body: data.body || '',
-                labels: data.labels ? data.labels.split(',').map(l => l.trim()).filter(Boolean) : []
+                labels: data.labels ? data.labels.split(',').map(l => l.trim()).filter(Boolean) : [],
             };
 
-            // Add branch reference if specified
             if (data.branch) {
                 requestBody.ref = data.branch;
             }
 
-            const result = await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/issues`, {
+            const result = await this.auth.makeRequest<GiteaIssue>(`/api/v1/repos/${owner}/${repo}/issues`, {
                 method: 'POST',
-                body: requestBody
+                body: requestBody,
             });
             vscode.window.showInformationMessage(`Issue #${result.number} created successfully!`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to create issue: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to create issue: ${errorMessage(error)}`);
         }
     }
 
-    getCreateIssueHtml(webview, repositories) {
+    getCreateIssueHtml(_webview: vscode.Webview, repositories: GiteaRepository[]): string {
         const repoOptions = repositories.map(repo =>
-            `<option value="${repo.full_name}">${repo.full_name}</option>`
+            `<option value="${repo.full_name}">${repo.full_name}</option>`,
         ).join('');
 
         return `<!DOCTYPE html>
@@ -1666,24 +1694,24 @@ function dlg(title, msg, cb) {
                 ${repoOptions}
             </select>
         </div>
-        
+
         <div class="form-group">
             <label for="title">Title *</label>
             <input type="text" id="title" placeholder="Brief description of the issue" required>
         </div>
-        
+
         <div class="form-group">
             <label for="body">Description</label>
             <textarea id="body" placeholder="Provide more details about the issue..."></textarea>
             <div class="hint">Supports Markdown formatting</div>
         </div>
-        
+
         <div class="form-group">
             <label for="labels">Labels</label>
             <input type="text" id="labels" placeholder="bug, enhancement, documentation">
             <div class="hint">Comma-separated list of labels</div>
         </div>
-        
+
         <div class="form-group">
             <label for="branch">Branch</label>
             <select id="branch">
@@ -1691,18 +1719,18 @@ function dlg(title, msg, cb) {
             </select>
             <div class="hint">Optional: tag this issue with a specific branch</div>
         </div>
-        
+
         <div id="duplicateResults" class="duplicate-results">
             <div id="duplicateHeader" style="margin-bottom: 12px; font-weight: 500; border-bottom: 1px solid var(--vscode-panel-border); padding-bottom: 8px;">
                 Potential Duplicate Issues Found
             </div>
             <div id="duplicateList"></div>
         </div>
-        
+
         <div class="button-group">
             <button type="button" id="checkDuplicatesBtn" class="secondary" style="flex: 1;">Check for Duplicates</button>
         </div>
-        
+
         <div class="button-group">
             <button type="submit">Create Issue</button>
             <button type="button" class="secondary" onclick="window.close()">Cancel</button>
@@ -1712,40 +1740,39 @@ function dlg(title, msg, cb) {
     <script>
         const vscode = acquireVsCodeApi();
         let isCheckingDuplicates = false;
-        
+
         document.getElementById('repository').addEventListener('change', async (e) => {
             const repository = e.target.value;
             if (repository) {
                 vscode.postMessage({ command: 'loadBranches', repository });
             }
-            // Clear duplicate results when repository changes
             document.getElementById('duplicateResults').classList.remove('show');
         });
-        
+
         document.getElementById('checkDuplicatesBtn').addEventListener('click', async (e) => {
             e.preventDefault();
             const repository = document.getElementById('repository').value;
             const title = document.getElementById('title').value;
             const body = document.getElementById('body').value;
-            
+
             if (!repository) {
                 alert('Please select a repository first');
                 return;
             }
-            
+
             if (!title) {
                 alert('Please enter a title first');
                 return;
             }
-            
+
             if (isCheckingDuplicates) return;
-            
+
             isCheckingDuplicates = true;
             const btn = document.getElementById('checkDuplicatesBtn');
             const originalText = btn.textContent;
             btn.textContent = 'Checking for duplicates...';
             btn.disabled = true;
-            
+
             vscode.postMessage({
                 command: 'checkDuplicates',
                 repository: repository,
@@ -1753,13 +1780,13 @@ function dlg(title, msg, cb) {
                 body: body
             });
         });
-        
+
         window.addEventListener('message', event => {
             const message = event.data;
             if (message.command === 'branchesLoaded') {
                 const branchSelect = document.getElementById('branch');
                 branchSelect.innerHTML = '<option value="">Select a branch...</option>';
-                
+
                 message.branches.forEach(branch => {
                     const opt = document.createElement('option');
                     opt.value = branch;
@@ -1767,7 +1794,6 @@ function dlg(title, msg, cb) {
                     branchSelect.appendChild(opt);
                 });
 
-                // Auto-select 'main' or 'master' if available
                 const defaultBranches = ['main', 'master'];
                 for (const defaultBranch of defaultBranches) {
                     if (message.branches.includes(defaultBranch)) {
@@ -1780,10 +1806,10 @@ function dlg(title, msg, cb) {
                 const btn = document.getElementById('checkDuplicatesBtn');
                 btn.textContent = 'Check for Duplicates';
                 btn.disabled = false;
-                
+
                 const resultsDiv = document.getElementById('duplicateResults');
                 const listDiv = document.getElementById('duplicateList');
-                
+
                 if (message.duplicates && message.duplicates.length > 0) {
                     resultsDiv.classList.add('show');
                     const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
@@ -1806,20 +1832,20 @@ function dlg(title, msg, cb) {
                 }
             }
         });
-        
+
         document.getElementById('issueForm').addEventListener('submit', (e) => {
             e.preventDefault();
-            
+
             const repository = document.getElementById('repository').value;
             const title = document.getElementById('title').value;
             const body = document.getElementById('body').value;
             const labels = document.getElementById('labels').value;
             const branch = document.getElementById('branch').value;
-            
+
             if (!repository || !title) {
                 return;
             }
-            
+
             vscode.postMessage({
                 command: 'createIssue',
                 data: { repository, title, body, labels, branch }
@@ -1831,12 +1857,24 @@ function dlg(title, msg, cb) {
     }
 }
 
-class PullRequestCreationProvider {
-    constructor(auth) {
+export interface DuplicateMatch {
+    number: number;
+    title: string;
+    state: string;
+    url: string;
+    similarity: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export class PullRequestCreationProvider {
+    private readonly auth: GiteaAuth;
+
+    constructor(auth: GiteaAuth) {
         this.auth = auth;
     }
 
-    async showCreatePullRequest(repositories) {
+    async showCreatePullRequest(repositories: GiteaRepository[]): Promise<void> {
         try {
             const panel = vscode.window.createWebviewPanel(
                 'giteaCreatePR',
@@ -1844,21 +1882,23 @@ class PullRequestCreationProvider {
                 vscode.ViewColumn.One,
                 {
                     enableScripts: true,
-                    retainContextWhenHidden: true
-                }
+                    retainContextWhenHidden: true,
+                },
             );
 
-            panel.webview.onDidReceiveMessage(async message => {
+            panel.webview.onDidReceiveMessage(async (message: WebviewMessage) => {
                 try {
                     switch (message.command) {
-                        case 'loadBranches':
-                            const branches = await this.loadBranches(message.repository);
+                        case 'loadBranches': {
+                            const branches = await this.loadBranches(message.repository || '');
                             panel.webview.postMessage({ command: 'branchesLoaded', branches });
                             break;
-                        case 'loadDiff':
-                            const diff = await this.loadDiff(message.repository, message.base, message.head);
+                        }
+                        case 'loadDiff': {
+                            const diff = await this.loadDiff(message.repository || '', message.base || '', message.head || '');
                             panel.webview.postMessage({ command: 'diffLoaded', diff });
                             break;
+                        }
                         case 'createPR':
                             await this.createPullRequest(message.data);
                             panel.dispose();
@@ -1866,62 +1906,65 @@ class PullRequestCreationProvider {
                     }
                 } catch (error) {
                     console.error('Error handling webview message:', error);
-                    vscode.window.showErrorMessage(`Error: ${error.message}`);
+                    vscode.window.showErrorMessage(`Error: ${errorMessage(error)}`);
                 }
             });
 
             panel.webview.html = this.getCreatePRHtml(panel.webview, repositories);
         } catch (error) {
             console.error('Failed to show create pull request form:', error);
-            vscode.window.showErrorMessage(`Failed to show create pull request form: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to show create pull request form: ${errorMessage(error)}`);
         }
     }
 
-    async loadBranches(repository) {
+    async loadBranches(repository: string): Promise<string[]> {
         try {
             const [owner, repo] = repository.split('/');
-            const branches = await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/branches`);
+            const branches = await this.auth.makeRequest<GiteaBranch[]>(`/api/v1/repos/${owner}/${repo}/branches`);
             return branches.map(b => b.name);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to load branches: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to load branches: ${errorMessage(error)}`);
             return [];
         }
     }
 
-    async loadDiff(repository, base, head) {
+    async loadDiff(repository: string, base: string, head: string): Promise<{ ok: boolean; data?: GiteaCompareResponse; error?: string }> {
         try {
             const [owner, repo] = repository.split('/');
-            const compare = await this.auth.makeRequest(
-                `/api/v1/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`
+            const compare = await this.auth.makeRequest<GiteaCompareResponse>(
+                `/api/v1/repos/${owner}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`,
             );
             return { ok: true, data: compare };
         } catch (error) {
-            return { ok: false, error: error.message };
+            return { ok: false, error: errorMessage(error) };
         }
     }
 
-    async createPullRequest(data) {
+    async createPullRequest(data?: WebviewMessage['data']): Promise<void> {
         try {
+            if (!data || !data.repository || !data.title) {
+                throw new Error('Missing required pull request fields');
+            }
             const [owner, repo] = data.repository.split('/');
-            const result = await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls`, {
+            const result = await this.auth.makeRequest<GiteaPullRequest>(`/api/v1/repos/${owner}/${repo}/pulls`, {
                 method: 'POST',
                 body: {
                     title: data.title,
                     body: data.body,
                     head: data.head,
                     base: data.base,
-                    assignees: data.assignees ? data.assignees.split(',').map(a => a.trim()).filter(Boolean) : []
-                }
+                    assignees: data.assignees ? data.assignees.split(',').map(a => a.trim()).filter(Boolean) : [],
+                },
             });
             vscode.window.showInformationMessage(`Pull Request #${result.number} created successfully!`);
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to create pull request: ${error.message}`);
+            vscode.window.showErrorMessage(`Failed to create pull request: ${errorMessage(error)}`);
         }
     }
 
-    getCreatePRHtml(webview, repositories) {
+    getCreatePRHtml(_webview: vscode.Webview, repositories: GiteaRepository[]): string {
         const repoOptions = repositories.map(repo =>
-            `<option value="${repo.full_name}">${repo.full_name}</option>`
+            `<option value="${repo.full_name}">${repo.full_name}</option>`,
         ).join('');
 
         return `<!DOCTYPE html>
@@ -1953,7 +1996,6 @@ textarea{min-height:120px;resize:vertical}
 .btn-primary{background:var(--btn-bg);color:var(--btn-fg)}.btn-primary:hover{background:var(--btn-hov)}
 .btn-secondary{background:var(--btn2-bg);color:var(--btn2-fg)}
 
-/* Diff preview */
 #diffPreview{margin-top:24px;border-top:1px solid var(--bd);padding-top:16px;display:none}
 .diff-hdr{font-size:14px;font-weight:600;margin-bottom:12px}
 .diff-loading{display:flex;align-items:center;gap:8px;color:var(--fg2);font-size:13px}
@@ -2106,7 +2148,6 @@ function renderDiff(result) {
   const totalAdd = d.diff_stats?.total_additions ?? files.reduce((s, f) => s + (f.additions || 0), 0);
   const totalDel = d.diff_stats?.total_deletions ?? files.reduce((s, f) => s + (f.deletions || 0), 0);
 
-  // Auto-suggest title from first commit if title field is empty
   if (!document.getElementById('title').value && commits.length > 0) {
     const firstMsg = commits[0].commit?.message || commits[0].message || '';
     document.getElementById('title').value = firstMsg.split('\\n')[0].trim();
@@ -2193,15 +2234,18 @@ document.getElementById('prForm').addEventListener('submit', e => {
     }
 }
 
-class VersionInfoProvider {
-    constructor(auth, context) {
+export class VersionInfoProvider {
+    private readonly auth: GiteaAuth;
+    private readonly context: vscode.ExtensionContext;
+    private _panel: vscode.WebviewPanel | null = null;
+
+    constructor(auth: GiteaAuth, context: vscode.ExtensionContext) {
         this.auth = auth;
         this.context = context;
-        this._panel = null;
     }
 
-    async show() {
-        const extensionVersion = this.context.extension.packageJSON.version;
+    async show(): Promise<void> {
+        const extensionVersion = this.context.extension.packageJSON.version as string;
         const vsCodeVersion = vscode.version;
 
         if (this._panel) {
@@ -2214,14 +2258,16 @@ class VersionInfoProvider {
             'gitea.versionInfo',
             'Gitea: Version Info',
             vscode.ViewColumn.Active,
-            { enableScripts: true }
+            { enableScripts: true },
         );
 
-        this._panel.onDidDispose(() => { this._panel = null; });
+        this._panel.onDidDispose(() => {
+            this._panel = null;
+        });
 
-        this._panel.webview.onDidReceiveMessage(async (message) => {
+        this._panel.webview.onDidReceiveMessage(async (message: WebviewMessage) => {
             if (message.command === 'copyToClipboard') {
-                await vscode.env.clipboard.writeText(message.text);
+                await vscode.env.clipboard.writeText(message.text || '');
                 this._panel?.webview.postMessage({ command: 'copied' });
             } else if (message.command === 'refreshGiteaVersion') {
                 this._refreshGiteaVersion();
@@ -2232,22 +2278,22 @@ class VersionInfoProvider {
         this._refreshGiteaVersion();
     }
 
-    async _refreshGiteaVersion() {
+    private async _refreshGiteaVersion(): Promise<void> {
         if (!this._panel) return;
         try {
             if (!this.auth.isConfigured()) {
                 this._panel.webview.postMessage({ command: 'setGiteaVersion', version: null, error: 'Not configured' });
                 return;
             }
-            const response = await this.auth.makeRequest('/api/v1/version');
+            const response = await this.auth.makeRequest<GiteaVersionResponse>('/api/v1/version');
             const version = (response && response.version) ? response.version : 'Unknown';
             this._panel?.webview.postMessage({ command: 'setGiteaVersion', version, error: null });
         } catch (error) {
-            this._panel?.webview.postMessage({ command: 'setGiteaVersion', version: null, error: error.message });
+            this._panel?.webview.postMessage({ command: 'setGiteaVersion', version: null, error: errorMessage(error) });
         }
     }
 
-    _buildHtml(extensionVersion, vsCodeVersion) {
+    private _buildHtml(extensionVersion: string, vsCodeVersion: string): string {
         return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2417,11 +2463,3 @@ class VersionInfoProvider {
 </html>`;
     }
 }
-
-module.exports = {
-    PullRequestWebviewProvider,
-    IssueWebviewProvider,
-    PullRequestCreationProvider,
-    VersionInfoProvider
-};
-
