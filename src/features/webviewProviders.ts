@@ -8,6 +8,7 @@ import {
     GiteaCompareResponse,
     GiteaFile,
     GiteaIssue,
+    GiteaLabel,
     GiteaPullRequest,
     GiteaRepository,
     GiteaReview,
@@ -124,7 +125,6 @@ export class PullRequestWebviewProvider {
             let files: GiteaFile[] = [];
             let commitsList: GiteaCommit[] = [];
             let conflictingFiles: GiteaFile[] = [];
-            let compareInfo: GiteaCompareResponse | null = null;
 
             try {
                 const results = await Promise.all([
@@ -135,18 +135,6 @@ export class PullRequestWebviewProvider {
                     this.auth.makeRequest<GiteaCommit[]>(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/commits`).catch(() => [] as GiteaCommit[]),
                 ]);
                 [prDetails, comments, reviews, files, commitsList] = results;
-
-                const baseRef = encodeURIComponent(prDetails.base?.ref || '');
-                const headRef = encodeURIComponent(prDetails.head?.ref || '');
-                if (baseRef && headRef) {
-                    try {
-                        compareInfo = await this.auth.makeRequest<GiteaCompareResponse>(
-                            `/api/v1/repos/${owner}/${repo}/compare/${baseRef}...${headRef}`,
-                        );
-                    } catch {
-                        compareInfo = null;
-                    }
-                }
 
                 if (prDetails.mergeable === false && files && files.length > 0) {
                     conflictingFiles = files.filter(file => {
@@ -238,7 +226,7 @@ export class PullRequestWebviewProvider {
 
             panel.webview.html = await embedGiteaImages(
                 this.auth,
-                this.getPullRequestHtml(panel.webview, prDetails, comments, reviews, files, commitsList, conflictingFiles, compareInfo),
+                this.getPullRequestHtml(panel.webview, prDetails, comments, reviews, files, commitsList, conflictingFiles),
             );
         } catch (error) {
             console.error('Failed to show pull request:', error);
@@ -276,7 +264,7 @@ export class PullRequestWebviewProvider {
         try {
             await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/merge`, {
                 method: 'POST',
-                body: { Do: mergeMethod },
+                body: { do: mergeMethod },
             });
             vscode.window.showInformationMessage(`PR #${prNumber} merged successfully`);
             await this.showPullRequest(prNumber, `${owner}/${repo}`);
@@ -300,17 +288,10 @@ export class PullRequestWebviewProvider {
 
     async updatePullRequestBranch(owner: string, repo: string, prNumber: number, style = 'merge'): Promise<void> {
         try {
-            try {
-                await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/update`, {
-                    method: 'POST',
-                    body: { style },
-                });
-            } catch {
-                await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/update`, {
-                    method: 'POST',
-                    body: { Style: style },
-                });
-            }
+            // Gitea expects the update style as a query parameter, not a body field
+            await this.auth.makeRequest(`/api/v1/repos/${owner}/${repo}/pulls/${prNumber}/update?style=${style}`, {
+                method: 'POST',
+            });
 
             vscode.window.showInformationMessage('Branch updated from base via merge');
             await this.showPullRequest(prNumber, `${owner}/${repo}`);
@@ -327,15 +308,10 @@ export class PullRequestWebviewProvider {
         files: GiteaFile[] = [],
         commits: GiteaCommit[] = [],
         conflictingFiles: GiteaFile[] = [],
-        compareInfo: GiteaCompareResponse | null = null,
     ): string {
         const stateOpen = pr.state === 'open';
         const stateMerged = Boolean(pr.merged);
         const stateText = stateOpen ? 'Open' : stateMerged ? 'Merged' : 'Closed';
-        const behindCount = compareInfo
-            ? (Number(compareInfo.behind_by) || Number(compareInfo.behind) || Number(compareInfo.behindBy) || 0)
-            : 0;
-        const isOutOfDate = behindCount > 0;
 
         const commentsHtml = (comments && comments.length > 0)
             ? comments.map(c => {
@@ -479,8 +455,6 @@ body{font-family:var(--vscode-font-family);font-size:14px;color:var(--fg);backgr
 .stats-row{display:flex;gap:16px;font-size:13px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--bd);margin-bottom:12px}
 .stat-item{display:flex;align-items:center;gap:4px;color:var(--fg2)}
 .stat-item b{color:var(--fg)}
-.ood-banner{display:flex;gap:12px;padding:12px;background:rgba(210,153,34,.08);border:1px solid var(--bd);border-left:3px solid #d29922;border-radius:6px;margin-bottom:12px;font-size:13px}
-.ood-icon{color:#d29922;font-size:16px;flex-shrink:0}
 .tabs{display:flex;border-bottom:1px solid var(--bd);margin-bottom:16px}
 .tab{padding:8px 16px;font-size:13px;cursor:pointer;border:none;background:none;color:var(--fg2);border-bottom:2px solid transparent;margin-bottom:-1px;font-family:inherit}
 .tab:hover{color:var(--fg)}
@@ -581,16 +555,6 @@ body{font-family:var(--vscode-font-family);font-size:14px;color:var(--fg);backgr
   <div class="stat-item">Additions: <b style="color:#3fb950">+${pr.additions || 0}</b></div>
   <div class="stat-item">Deletions: <b style="color:#f85149">-${pr.deletions || 0}</b></div>
 </div>
-
-${isOutOfDate ? `
-<div class="ood-banner">
-  <div class="ood-icon">⚠</div>
-  <div>
-    <div style="font-weight:600;margin-bottom:4px">This branch is out-of-date with the base branch</div>
-    <div style="color:var(--fg2);margin-bottom:8px">Behind by ${behindCount} commit${behindCount !== 1 ? 's' : ''}.</div>
-    <button class="btn btn-secondary" onclick="updateBranch('merge')">Update branch</button>
-  </div>
-</div>` : ''}
 
 <div class="tabs">
   <button class="tab active" onclick="switchTab('conversation',this)">Conversation <span style="background:var(--hdr-bg);border:1px solid var(--bd);border-radius:20px;padding:1px 7px;font-size:11px;margin-left:4px">${(comments?.length || 0) + (reviews?.length || 0)}</span></button>
@@ -1534,8 +1498,25 @@ function dlg(title, msg, cb) {
             const requestBody: Record<string, unknown> = {
                 title: data.title,
                 body: data.body || '',
-                labels: data.labels ? data.labels.split(',').map(l => l.trim()).filter(Boolean) : [],
+                labels: [],
             };
+
+            // The API expects label IDs, so resolve the typed names against the
+            // repository's labels first.
+            if (data.labels) {
+                const names = data.labels.split(',').map(l => l.trim()).filter(Boolean);
+                if (names.length > 0) {
+                    try {
+                        const labels = await this.auth.makeRequest<GiteaLabel[]>(`/api/v1/repos/${owner}/${repo}/labels`);
+                        requestBody.labels = names
+                            .map(name => labels.find(l => l.name.toLowerCase() === name.toLowerCase())?.id)
+                            .filter((id): id is number => id !== undefined);
+                    } catch (err) {
+                        console.warn(`Failed to resolve labels for ${data.repository}:`, err);
+                        requestBody.labels = [];
+                    }
+                }
+            }
 
             if (data.branch) {
                 requestBody.ref = data.branch;

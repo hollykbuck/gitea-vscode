@@ -118,6 +118,7 @@ export interface GiteaCommit {
     url?: string;
     message?: string;
     created_at?: string;
+    created?: string;
     author?: GiteaCommitAuthor;
     committer?: GiteaCommitAuthor;
     commit?: {
@@ -159,12 +160,8 @@ export interface GiteaVersionResponse {
 }
 
 export interface GiteaCompareResponse {
-    behind_by?: number;
-    behind?: number;
-    behindBy?: number;
     commits?: GiteaCommit[];
-    files?: GiteaFile[];
-    diff_stats?: { total_additions?: number; total_deletions?: number };
+    total_commits?: number;
 }
 
 export interface GiteaContentsFile {
