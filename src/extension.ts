@@ -23,6 +23,7 @@ import { throttle } from './features/performanceOptimizer';
 import { showImportIssuesDialog } from './features/importIssues';
 import { syncProfileToGitea, restoreProfileFromGitea } from './features/profileSync';
 import { DeletedBranch, GiteaRepository } from './types/gitea';
+import { registerGiteaOAuthProvider } from './features/oauth';
 
 interface RepositoryItem {
     repository?: GiteaRepository;
@@ -50,6 +51,8 @@ let _notificationManager: NotificationManager | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     try {
+        context.subscriptions.push(registerGiteaOAuthProvider(context));
+
         const auth = new GiteaAuth();
         await auth.initialize();
 
@@ -174,6 +177,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             } catch (error) {
                 console.error('Failed to configure Gitea:', error);
                 vscode.window.showErrorMessage(`Failed to configure Gitea: ${errorMessage(error)}`);
+            }
+        });
+
+        // OAuth sign-in command
+        const signInWithOAuthCommand = vscode.commands.registerCommand('opengitea.signInWithOAuth', async () => {
+            try {
+                await auth.signInWithOAuth();
+                repositoryProvider.refresh();
+                issueProvider.refresh();
+                pullRequestProvider.refresh();
+            } catch (error) {
+                console.error('Failed to sign in with OAuth:', error);
+                vscode.window.showErrorMessage(`Failed to sign in with OAuth: ${errorMessage(error)}`);
             }
         });
 
@@ -965,6 +981,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             pullRequestTreeView,
             deletedBranchesTreeView,
             configureCommand,
+            signInWithOAuthCommand,
             searchRepositoriesCommand,
             searchIssuesCommand,
             searchPullRequestsCommand,
@@ -1093,11 +1110,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Show welcome message if not configured
         if (!auth.isConfigured()) {
             const result = await vscode.window.showInformationMessage(
-                'Welcome to Gitea! Configure your instance to get started.',
-                'Configure Now', 'Later',
+                'Welcome to OpenGitea! Configure your instance to get started.',
+                'Configure Now', 'Sign in with OAuth', 'Later',
             );
             if (result === 'Configure Now') {
                 await vscode.commands.executeCommand('opengitea.configure');
+            } else if (result === 'Sign in with OAuth') {
+                await vscode.commands.executeCommand('opengitea.signInWithOAuth');
             }
         }
     } catch (error) {

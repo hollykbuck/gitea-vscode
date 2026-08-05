@@ -27,6 +27,11 @@
                 "icon": "$(gear)"
             },
             {
+                "command": "opengitea.signInWithOAuth",
+                "title": "OpenGitea: Sign in with OAuth (Browser)",
+                "icon": "$(account)"
+            },
+            {
                 "command": "opengitea.searchRepositories",
                 "title": "OpenGitea: Search Repositories",
                 "icon": "$(search)"
@@ -415,12 +420,19 @@
                             },
                             "authToken": {
                                 "type": "string",
-                                "description": "Personal Access Token for this profile"
+                                "description": "Personal Access Token for this profile (not stored for OAuth profiles)"
+                            },
+                            "authType": {
+                                "type": "string",
+                                "enum": [
+                                    "token",
+                                    "oauth"
+                                ],
+                                "description": "Authentication method used by this profile"
                             }
                         },
                         "required": [
-                            "instanceUrl",
-                            "authToken"
+                            "instanceUrl"
                         ]
                     }
                 },
@@ -428,6 +440,26 @@
                     "type": "string",
                     "default": "default",
                     "description": "Name of the currently active Gitea profile"
+                },
+                "opengitea.oauthClientId": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Client ID of the OAuth2 application registered on your Gitea server (Settings → Applications → OAuth2 Applications)"
+                },
+                "opengitea.oauthClientSecret": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Optional client secret of your Gitea OAuth2 application. Not required when using PKCE"
+                },
+                "opengitea.oauthRedirectPort": {
+                    "type": "number",
+                    "default": 53123,
+                    "description": "Local port used for the OAuth callback. Must match the redirect URI registered in your Gitea OAuth2 application: http://127.0.0.1:<port>/callback"
+                },
+                "opengitea.oauthScopes": {
+                    "type": "string",
+                    "default": "read:user read:repository write:repository write:issue read:issue write:pull_request read:pull_request read:organization",
+                    "description": "Space-separated OAuth2 scopes requested from Gitea"
                 },
                 "opengitea.branchDeletionRetentionDays": {
                     "type": "number",

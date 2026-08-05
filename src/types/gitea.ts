@@ -180,7 +180,10 @@ export interface GiteaLabelMap {
 /** An authenticated Gitea profile stored in VS Code settings. */
 export interface GiteaProfile {
     instanceUrl: string;
-    authToken: string;
+    /** Personal Access Token. Not stored for OAuth profiles. */
+    authToken?: string;
+    /** Authentication method used by this profile. */
+    authType?: 'token' | 'oauth';
 }
 
 /** A branch deletion tracked by the extension for later restoration. */

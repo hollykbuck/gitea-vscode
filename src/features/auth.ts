@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { GiteaClient, RequestOptions } from '../api/client';
 import { GiteaProfile, GiteaUser } from '../types/gitea';
+import { OAUTH_PROVIDER_ID, oauthServerScope, signOutGiteaSession } from './oauth';
 
 /**
  * Manages Gitea authentication: profiles stored in VS Code settings, the
@@ -39,7 +40,9 @@ export class GiteaAuth {
             if (profile) {
                 this.activeProfile = profileName;
                 this.instanceUrl = profile.instanceUrl;
-                this.authToken = profile.authToken;
+                this.authToken = profile.authType === 'oauth'
+                    ? await this.resolveOAuthToken(profile.instanceUrl, false)
+                    : (profile.authToken ?? null);
             } else {
                 // Legacy configuration for backward compatibility
                 this.instanceUrl = config.get<string>('instanceUrl') ?? null;
@@ -88,21 +91,19 @@ export class GiteaAuth {
      */
     async configure(): Promise<void> {
         try {
-            const instanceUrl = await vscode.window.showInputBox({
-                prompt: 'Enter your Gitea instance URL',
-                placeHolder: 'https://gitea.example.com',
-                value: this.instanceUrl || '',
-                validateInput: (value) => {
-                    if (!value) return 'Instance URL is required';
-                    try {
-                        new URL(value);
-                        return null;
-                    } catch {
-                        return 'Please enter a valid URL';
-                    }
-                },
-            });
+            const method = await vscode.window.showQuickPick(
+                ['Personal Access Token', 'OAuth (browser)'],
+                { placeHolder: 'How do you want to sign in to Gitea?' },
+            );
 
+            if (!method) return;
+
+            if (method === 'OAuth (browser)') {
+                await this.signInWithOAuth();
+                return;
+            }
+
+            const instanceUrl = await this.promptInstanceUrl(this.instanceUrl);
             if (!instanceUrl) return;
 
             const authToken = await vscode.window.showInputBox({
@@ -117,19 +118,10 @@ export class GiteaAuth {
 
             if (!authToken) return;
 
-            const profileName = await vscode.window.showInputBox({
-                prompt: 'Enter a profile name',
-                placeHolder: 'e.g., work, personal, default',
-                value: this.activeProfile || 'default',
-                validateInput: (value) => {
-                    if (!value) return 'Profile name is required';
-                    return null;
-                },
-            });
-
+            const profileName = await this.promptProfileName(this.activeProfile || 'default');
             if (!profileName) return;
 
-            this.profiles[profileName] = { instanceUrl, authToken };
+            this.profiles[profileName] = { instanceUrl, authToken, authType: 'token' };
             this.activeProfile = profileName;
             this.instanceUrl = instanceUrl;
             this.authToken = authToken;
@@ -144,24 +136,113 @@ export class GiteaAuth {
     }
 
     /**
+     * Sign in to a Gitea instance via the OAuth2 browser flow. The resulting
+     * access token is stored by the authentication provider in VS Code's
+     * SecretStorage; only the instance URL and auth type are saved to settings.
+     */
+    async signInWithOAuth(): Promise<boolean> {
+        const instanceUrl = await this.promptInstanceUrl(this.instanceUrl);
+        if (!instanceUrl) return false;
+
+        const clientId = vscode.workspace.getConfiguration('opengitea').get<string>('oauthClientId', '');
+        if (!clientId) {
+            vscode.window.showErrorMessage(
+                'OAuth requires "opengitea.oauthClientId". Create an OAuth2 application on your Gitea server ' +
+                '(Settings → Applications → OAuth2 Applications), set its Client ID in the OpenGitea settings, ' +
+                'and register the redirect URI http://127.0.0.1:53123/callback.',
+            );
+            return false;
+        }
+
+        const token = await this.resolveOAuthToken(instanceUrl, true);
+        if (!token) return false;
+
+        const profileName = await this.promptProfileName(this.activeProfile || 'default');
+        if (!profileName) return false;
+
+        this.profiles[profileName] = { instanceUrl, authType: 'oauth' };
+        this.activeProfile = profileName;
+        this.instanceUrl = instanceUrl;
+        this.authToken = token;
+        this.syncCredentials();
+
+        await this.saveProfiles();
+        return await this.validateCredentials();
+    }
+
+    /**
+     * Resolve the OAuth access token for a Gitea instance through the
+     * {@link OAUTH_PROVIDER_ID} authentication provider.
+     */
+    private async resolveOAuthToken(instanceUrl: string, interactive: boolean): Promise<string | null> {
+        try {
+            const options: vscode.AuthenticationGetSessionOptions = interactive
+                ? { createIfNone: true }
+                : { createIfNone: false, silent: true };
+            const session = await vscode.authentication.getSession(
+                OAUTH_PROVIDER_ID,
+                [oauthServerScope(instanceUrl)],
+                options,
+            );
+            return session?.accessToken ?? null;
+        } catch (error) {
+            if (interactive) {
+                vscode.window.showErrorMessage(
+                    `OAuth sign-in failed: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            }
+            return null;
+        }
+    }
+
+    private async promptInstanceUrl(defaultValue: string | null): Promise<string | null> {
+        const value = await vscode.window.showInputBox({
+            prompt: 'Enter your Gitea instance URL',
+            placeHolder: 'https://gitea.example.com',
+            value: defaultValue ?? '',
+            validateInput: (input) => {
+                if (!input) return 'Instance URL is required';
+                try {
+                    new URL(input);
+                    return null;
+                } catch {
+                    return 'Please enter a valid URL';
+                }
+            },
+        });
+        return value ?? null;
+    }
+
+    private async promptProfileName(defaultValue: string | null): Promise<string | null> {
+        const value = await vscode.window.showInputBox({
+            prompt: 'Enter a profile name',
+            placeHolder: 'e.g., work, personal, default',
+            value: defaultValue ?? '',
+            validateInput: (input) => {
+                if (!input) return 'Profile name is required';
+                return null;
+            },
+        });
+        return value ?? null;
+    }
+
+    /**
      * Add a new profile.
      */
     async addProfile(): Promise<boolean> {
         try {
-            const instanceUrl = await vscode.window.showInputBox({
-                prompt: 'Enter your Gitea instance URL',
-                placeHolder: 'https://gitea.example.com',
-                validateInput: (value) => {
-                    if (!value) return 'Instance URL is required';
-                    try {
-                        new URL(value);
-                        return null;
-                    } catch {
-                        return 'Please enter a valid URL';
-                    }
-                },
-            });
+            const method = await vscode.window.showQuickPick(
+                ['Personal Access Token', 'OAuth (browser)'],
+                { placeHolder: 'How do you want to authenticate?' },
+            );
 
+            if (!method) return false;
+
+            if (method === 'OAuth (browser)') {
+                return await this.signInWithOAuth();
+            }
+
+            const instanceUrl = await this.promptInstanceUrl(null);
             if (!instanceUrl) return false;
 
             const authToken = await vscode.window.showInputBox({
@@ -188,7 +269,7 @@ export class GiteaAuth {
 
             if (!profileName) return false;
 
-            this.profiles[profileName] = { instanceUrl, authToken };
+            this.profiles[profileName] = { instanceUrl, authToken, authType: 'token' };
             await this.saveProfiles();
 
             const switchNow = await vscode.window.showInformationMessage(
@@ -266,7 +347,9 @@ export class GiteaAuth {
                 return false;
             }
             this.instanceUrl = profile.instanceUrl;
-            this.authToken = profile.authToken;
+            this.authToken = profile.authType === 'oauth'
+                ? await this.resolveOAuthToken(profile.instanceUrl, true)
+                : (profile.authToken ?? null);
             this.syncCredentials();
 
             await this.saveProfiles();
@@ -337,8 +420,14 @@ export class GiteaAuth {
 
             if (confirm !== 'Remove') return false;
 
+            const targetProfile = this.profiles[target];
             delete this.profiles[target];
             await this.saveProfiles();
+
+            if (targetProfile?.authType === 'oauth') {
+                await signOutGiteaSession(targetProfile.instanceUrl);
+            }
+
             vscode.window.showInformationMessage(`Profile "${target}" removed successfully`);
             return true;
         } catch (error) {

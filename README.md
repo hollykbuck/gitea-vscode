@@ -60,8 +60,8 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 #### Additional Features
 
 - **VS Code Profile Sync**: Back up and restore your VS Code settings, keybindings, and extension list using any Gitea repository
-  - `Gitea: Sync VS Code Profile to Gitea` — uploads `settings.json`, `keybindings.json`, and installed extensions to a Gitea repo (creates `<you>/vscode-profile` automatically if needed)
-  - `Gitea: Restore VS Code Profile from Gitea` — downloads and applies profile files; offers to install any missing extensions
+  - `OpenGitea: Sync VS Code Profile to Gitea` — uploads `settings.json`, `keybindings.json`, and installed extensions to a Gitea repo (creates `<you>/vscode-profile` automatically if needed)
+  - `OpenGitea: Restore VS Code Profile from Gitea` — downloads and applies profile files; offers to install any missing extensions
 - **Profile Management**: Configure and switch between multiple Gitea instances/accounts with profile management commands
 - **Stash Management**: Manage git stashes with support for creating, applying, popping, dropping, and viewing stashes
 - **Markdown Rendering**: PR and Issue descriptions and comments render with full markdown formatting, including images fetched securely via the authenticated API
@@ -70,10 +70,23 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 ### Getting Started
 
 1. Open VS Code in a folder containing one or more Git repositories.
-2. Configure your Gitea instance and token via command palette:
-   - Run `Gitea: Configure Instance`.
-   - Provide `gitea.instanceUrl`, Personal Access Token and an Alias/Name for your Profile.
-3. Open the Gitea Activity Bar icon to explore Repositories, Issues, and Pull Requests.
+2. Configure your Gitea instance via the command palette — run `OpenGitea: Configure Instance` and choose one of:
+   - **Personal Access Token**: provide your instance URL, a token, and a profile name.
+   - **OAuth (browser)**: sign in through your Gitea server (see [OAuth sign-in](#oauth-sign-in)).
+3. Open the OpenGitea Activity Bar icon to explore Repositories, Issues, and Pull Requests.
+
+### OAuth Sign-in
+
+OAuth uses the standard Authorization Code + PKCE flow and stores tokens in VS Code's secure SecretStorage (tokens are never written to your settings).
+
+To enable it:
+
+1. On your Gitea server, go to **Settings → Applications → OAuth2 Applications** and create an application.
+2. Set its **Redirect URI** to `http://127.0.0.1:53123/callback` (or change `opengitea.oauthRedirectPort` and use `http://127.0.0.1:<port>/callback`).
+3. Copy the application's **Client ID** and set it in the `opengitea.oauthClientId` setting. A client secret is optional (PKCE is used).
+4. Run `OpenGitea: Sign in with OAuth (Browser)` (or choose OAuth in `OpenGitea: Configure Instance` / `OpenGitea: Add Profile`), enter your instance URL, and complete the login in the browser that opens.
+
+OAuth profiles show up like any other profile in `OpenGitea: Switch Profile`; their tokens are refreshed automatically when supported by the server, and signing out (removing the profile) also revokes the stored session.
 
 ### Views Overview
 
@@ -90,38 +103,45 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 
 ### Commands
 
-- Gitea: Configure Instance (`gitea.configure`): set instance URL and token.
-- Gitea: Search Repositories (`gitea.searchRepositories`)
-- Gitea: Search Issues (`gitea.searchIssues`)
-- Gitea: Search Pull Requests (`gitea.searchPullRequests`)
-- Refresh Repositories (`gitea.refreshRepositories`): refresh current view data.
-- Gitea: Toggle Notifications (`gitea.toggleNotifications`)
-- Gitea: Check Notification Status (`gitea.notificationStatus`)
-- Gitea: Create Repository (`gitea.createRepository`)
-- Gitea: Create Issue (`gitea.createIssue`)
-- Gitea: Import Issues from XLSX (`gitea.importIssues`): bulk import issues from Excel file.
-- Gitea: Create Pull Request (`gitea.createPullRequest`)
-- Open Repository in VS Code (`gitea.openRepository`)
-- Open in Browser (`gitea.openInBrowser`)
-- Open Issue in Browser (`gitea.openIssueInBrowser`)
-- Open Pull Request in Browser (`gitea.openPullRequestInBrowser`)
-- View Issue Details (`gitea.viewIssueDetails`): open rich detail panel with comments and actions.
-- View Pull Request Details (`gitea.viewPullRequestDetails`): open rich detail panel with reviews, comments, and merge actions.
-- Gitea: Sync VS Code Profile to Gitea (`gitea.syncProfileToGitea`): upload settings, keybindings, and extensions to a Gitea repository.
-- Gitea: Restore VS Code Profile from Gitea (`gitea.restoreProfileFromGitea`): download and apply a previously synced VS Code profile.
+- OpenGitea: Configure Instance (`opengitea.configure`): set instance URL and token or sign in with OAuth.
+- OpenGitea: Sign in with OAuth (`opengitea.signInWithOAuth`): browser-based OAuth2 sign-in.
+- OpenGitea: Search Repositories (`opengitea.searchRepositories`)
+- OpenGitea: Search Issues (`opengitea.searchIssues`)
+- OpenGitea: Search Pull Requests (`opengitea.searchPullRequests`)
+- Refresh Repositories (`opengitea.refreshRepositories`): refresh current view data.
+- OpenGitea: Toggle Notifications (`opengitea.toggleNotifications`)
+- OpenGitea: Check Notification Status (`opengitea.notificationStatus`)
+- OpenGitea: Create Repository (`opengitea.createRepository`)
+- OpenGitea: Create Issue (`opengitea.createIssue`)
+- OpenGitea: Import Issues from XLSX (`opengitea.importIssues`): bulk import issues from Excel file.
+- OpenGitea: Create Pull Request (`opengitea.createPullRequest`)
+- Open Repository in VS Code (`opengitea.openRepository`)
+- Open in Browser (`opengitea.openInBrowser`)
+- Open Issue in Browser (`opengitea.openIssueInBrowser`)
+- Open Pull Request in Browser (`opengitea.openPullRequestInBrowser`)
+- View Issue Details (`opengitea.viewIssueDetails`): open rich detail panel with comments and actions.
+- View Pull Request Details (`opengitea.viewPullRequestDetails`): open rich detail panel with reviews, comments, and merge actions.
+- OpenGitea: Add Profile (`opengitea.addProfile`)
+- OpenGitea: Switch Profile (`opengitea.switchProfile`)
+- OpenGitea: Remove Profile (`opengitea.removeProfile`)
+- OpenGitea: Sync VS Code Profile to Gitea (`opengitea.syncProfileToGitea`): upload settings, keybindings, and extensions to a Gitea repository.
+- OpenGitea: Restore VS Code Profile from Gitea (`opengitea.restoreProfileFromGitea`): download and apply a previously synced VS Code profile.
 
 ### Settings
 
-- `gitea.instanceUrl`: Your Gitea instance URL (e.g., `https://gitea.example.com`).
-- `gitea.authToken`: Personal Access Token for Gitea API authentication.
-- `gitea.enableNotifications`: Enable notifications for repository activities.
-- `gitea.notificationPollInterval`: Poll interval for notifications in ms (minimum 30000).
-- `gitea.defaultRepoStartingPath`: Default local path for cloning new repositories.
-- `gitea.showAllReposWhenNoWorkspace`: Show all repositories when none are detected in the current workspace.
-- `gitea.repoScanDepth`: Maximum folder depth to scan for git repositories in the workspace.
-- `gitea.profiles`: Configure multiple Gitea profiles with instance URL, token, and alias.
-- `gitea.activeProfile`: Set the active profile by its alias/name.
-- `gitea.profileSyncRepo`: Default Gitea repository (owner/repo) used for VS Code profile sync (defaults to `<currentUser>/vscode-profile`).
+- `opengitea.instanceUrl`: Your Gitea instance URL (e.g., `https://gitea.example.com`).
+- `opengitea.authToken`: Personal Access Token for Gitea API authentication.
+- `opengitea.oauthClientId`: Client ID of the OAuth2 application registered on your Gitea server.
+- `opengitea.oauthClientSecret`: Optional client secret (not required when using PKCE).
+- `opengitea.oauthRedirectPort`: Local port used for the OAuth callback (must match the registered redirect URI; default `53123`).
+- `opengitea.oauthScopes`: Space-separated OAuth2 scopes requested from Gitea.
+- `opengitea.enableNotifications`: Enable notifications for repository activities.
+- `opengitea.notificationPollInterval`: Poll interval for notifications in ms (minimum 30000).
+- `opengitea.defaultRepoStartingPath`: Default local path for cloning new repositories.
+- `opengitea.showAllReposWhenNoWorkspace`: Show all repositories when none are detected in the current workspace.
+- `opengitea.repoScanDepth`: Maximum folder depth to scan for git repositories in the workspace.
+- `opengitea.profiles`: Configure multiple Gitea profiles with instance URL, token (or OAuth), and alias.
+- `opengitea.activeProfile`: Set the active profile by its alias/name.
 
 ### Performance behavior
 
