@@ -31,7 +31,7 @@ export class NotificationManager {
 
             this.isMonitoring = true;
 
-            const config = vscode.workspace.getConfiguration('gitea');
+            const config = vscode.workspace.getConfiguration('opengitea');
             this.pollInterval = config.get<number>('notificationPollInterval') || 60000;
 
             await this.checkRepositoriesActivity();
@@ -224,14 +224,14 @@ export class NotificationManager {
                 if (selection === 'View in VS Code') {
                     void (async () => {
                         try {
-                            await vscode.commands.executeCommand('workbench.view.extension.gitea-explorer');
-                            await vscode.commands.executeCommand('gitea.issues.focus');
+                            await vscode.commands.executeCommand('workbench.view.extension.opengitea-explorer');
+                            await vscode.commands.executeCommand('opengitea.issues.focus');
                         } catch (err) {
                             console.error('Failed to focus issues view:', err);
                         }
                     })();
                 } else if (selection === 'Open in Browser') {
-                    vscode.commands.executeCommand('gitea.openIssueInBrowser', issueItem)
+                    vscode.commands.executeCommand('opengitea.openIssueInBrowser', issueItem)
                         .then(undefined, err => console.error('Failed to open issue in browser:', err));
                 }
             });
@@ -267,14 +267,14 @@ export class NotificationManager {
                 if (selection === 'View in VS Code') {
                     void (async () => {
                         try {
-                            await vscode.commands.executeCommand('workbench.view.extension.gitea-explorer');
-                            await vscode.commands.executeCommand('gitea.pullRequests.focus');
+                            await vscode.commands.executeCommand('workbench.view.extension.opengitea-explorer');
+                            await vscode.commands.executeCommand('opengitea.pullRequests.focus');
                         } catch (err) {
                             console.error('Failed to focus pull requests view:', err);
                         }
                     })();
                 } else if (selection === 'Open in Browser') {
-                    vscode.commands.executeCommand('gitea.openPullRequestInBrowser', prItem)
+                    vscode.commands.executeCommand('opengitea.openPullRequestInBrowser', prItem)
                         .then(undefined, err => console.error('Failed to open PR in browser:', err));
                 }
             });

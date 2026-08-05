@@ -423,7 +423,7 @@ export async function showImportIssuesDialog(auth: GiteaAuth, repositories: Gite
 async function showImportOptionsDialog(issues: ParsedIssue[]): Promise<ImportOptions | null> {
     return new Promise((resolve) => {
         const panel = vscode.window.createWebviewPanel(
-            'giteaImportOptions',
+            'opengiteaImportOptions',
             'Import Issues - Options',
             vscode.ViewColumn.One,
             { enableScripts: true },
@@ -691,7 +691,7 @@ function showImportResults(results: ImportResults): void {
  */
 function showCreatedIssues(successful: ImportResults['successful']): void {
     const panel = vscode.window.createWebviewPanel(
-        'giteaCreatedIssues',
+        'opengiteaCreatedIssues',
         'Created Issues',
         vscode.ViewColumn.One,
         { enableScripts: false },
@@ -734,7 +734,7 @@ function showCreatedIssues(successful: ImportResults['successful']): void {
  */
 function showDuplicateDetails(duplicates: ImportResults['duplicates']): void {
     const panel = vscode.window.createWebviewPanel(
-        'giteaDuplicates',
+        'opengiteaDuplicates',
         'Duplicate Issues',
         vscode.ViewColumn.One,
         {},
@@ -824,7 +824,7 @@ function showDuplicateDetails(duplicates: ImportResults['duplicates']): void {
  */
 function showFailureDetails(failedIssues: ImportResults['failed']): void {
     const panel = vscode.window.createWebviewPanel(
-        'giteaImportFailures',
+        'opengiteaImportFailures',
         'Import Failures',
         vscode.ViewColumn.One,
         {},

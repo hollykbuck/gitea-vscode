@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 
 suite('Extension Tests', () => {
     test('Extension is Present', () => {
-        const extension = vscode.extensions.getExtension('TerenceCarrera.gitea');
+        const extension = vscode.extensions.getExtension('hollykbuck.opengitea');
         assert.ok(extension, 'Extension not found');
     });
 
@@ -12,46 +12,46 @@ suite('Extension Tests', () => {
 
         const expectedCommands = [
             // Configuration & Profile Management
-            'gitea.configure',
-            'gitea.addProfile',
-            'gitea.switchProfile',
-            'gitea.removeProfile',
+            'opengitea.configure',
+            'opengitea.addProfile',
+            'opengitea.switchProfile',
+            'opengitea.removeProfile',
             // Repository Management
-            'gitea.searchRepositories',
-            'gitea.refreshRepositories',
-            'gitea.createRepository',
-            'gitea.openRepository',
-            'gitea.openInBrowser',
+            'opengitea.searchRepositories',
+            'opengitea.refreshRepositories',
+            'opengitea.createRepository',
+            'opengitea.openRepository',
+            'opengitea.openInBrowser',
             // Issue Management
-            'gitea.searchIssues',
-            'gitea.createIssue',
-            'gitea.importIssues',
-            'gitea.viewIssueDetails',
-            'gitea.openIssueInBrowser',
+            'opengitea.searchIssues',
+            'opengitea.createIssue',
+            'opengitea.importIssues',
+            'opengitea.viewIssueDetails',
+            'opengitea.openIssueInBrowser',
             // Pull Request Management
-            'gitea.searchPullRequests',
-            'gitea.createPullRequest',
-            'gitea.viewPullRequestDetails',
-            'gitea.openPullRequestInBrowser',
+            'opengitea.searchPullRequests',
+            'opengitea.createPullRequest',
+            'opengitea.viewPullRequestDetails',
+            'opengitea.openPullRequestInBrowser',
             // Branch Management
-            'gitea.switchBranch',
-            'gitea.createBranchFromIssue',
-            'gitea.createBranchFromPR',
-            'gitea.deleteBranch',
+            'opengitea.switchBranch',
+            'opengitea.createBranchFromIssue',
+            'opengitea.createBranchFromPR',
+            'opengitea.deleteBranch',
             // Deleted Branch Management
-            'gitea.restoreDeletedBranch',
-            'gitea.restoreBranchFromReflog',
-            'gitea.restoreBranchFromTree',
-            'gitea.showDeletedBranchDetails',
-            'gitea.removeFromHistory',
-            'gitea.clearDeletionHistory',
-            'gitea.exportDeletionHistory',
-            'gitea.importDeletionHistory',
-            'gitea.refreshDeletedBranches',
+            'opengitea.restoreDeletedBranch',
+            'opengitea.restoreBranchFromReflog',
+            'opengitea.restoreBranchFromTree',
+            'opengitea.showDeletedBranchDetails',
+            'opengitea.removeFromHistory',
+            'opengitea.clearDeletionHistory',
+            'opengitea.exportDeletionHistory',
+            'opengitea.importDeletionHistory',
+            'opengitea.refreshDeletedBranches',
             // Notifications & Other
-            'gitea.toggleNotifications',
-            'gitea.notificationStatus',
-            'gitea.manageStash',
+            'opengitea.toggleNotifications',
+            'opengitea.notificationStatus',
+            'opengitea.manageStash',
         ];
 
         // Activation is event-driven and may complete after the test starts, so

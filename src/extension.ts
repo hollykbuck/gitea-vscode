@@ -81,7 +81,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         let hasPromptedNoWorkspaceRepos = false;
         const getShowAllReposWhenNoWorkspace = (): boolean => {
-            const config = vscode.workspace.getConfiguration('gitea');
+            const config = vscode.workspace.getConfiguration('opengitea');
             return Boolean(config.get<boolean>('showAllReposWhenNoWorkspace', false));
         };
 
@@ -113,13 +113,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 });
 
                 if (selected) {
-                    await vscode.commands.executeCommand('gitea.openRepository', { repository: selected.value });
+                    await vscode.commands.executeCommand('opengitea.openRepository', { repository: selected.value });
                 }
                 return 'clone';
             }
 
             if (action === 'Show All Repos') {
-                const config = vscode.workspace.getConfiguration('gitea');
+                const config = vscode.workspace.getConfiguration('opengitea');
                 await config.update('showAllReposWhenNoWorkspace', true, vscode.ConfigurationTarget.Global);
                 return 'showAll';
             }
@@ -131,41 +131,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             vscode.StatusBarAlignment.Left,
             1000,
         );
-        giteaStatusBar.name = 'Gitea Account';
-        giteaStatusBar.tooltip = 'Click to Switch Gitea Profile/Account';
+        giteaStatusBar.name = 'OpenGitea Account';
+        giteaStatusBar.tooltip = 'Click to Switch OpenGitea Profile/Account';
 
         const updateStatusBar = (): void => {
             const activeProfile = auth.activeProfile || 'default';
-            giteaStatusBar.text = `$(account) Gitea: ${activeProfile}`;
-            giteaStatusBar.command = 'gitea.switchProfile';
+            giteaStatusBar.text = `$(account) OpenGitea: ${activeProfile}`;
+            giteaStatusBar.command = 'opengitea.switchProfile';
             giteaStatusBar.show();
         };
 
         updateStatusBar();
         context.subscriptions.push(giteaStatusBar);
 
-        const repositoryTreeView = vscode.window.createTreeView('gitea.repositories', {
+        const repositoryTreeView = vscode.window.createTreeView('opengitea.repositories', {
             treeDataProvider: repositoryProvider,
             showCollapseAll: true,
         });
 
-        const issueTreeView = vscode.window.createTreeView('gitea.issues', {
+        const issueTreeView = vscode.window.createTreeView('opengitea.issues', {
             treeDataProvider: issueProvider,
             showCollapseAll: true,
         });
 
-        const pullRequestTreeView = vscode.window.createTreeView('gitea.pullRequests', {
+        const pullRequestTreeView = vscode.window.createTreeView('opengitea.pullRequests', {
             treeDataProvider: pullRequestProvider,
             showCollapseAll: true,
         });
 
-        const deletedBranchesTreeView = vscode.window.createTreeView('gitea.deletedBranches', {
+        const deletedBranchesTreeView = vscode.window.createTreeView('opengitea.deletedBranches', {
             treeDataProvider: deletedBranchesProvider,
             showCollapseAll: true,
         });
 
         // Configuration command
-        const configureCommand = vscode.commands.registerCommand('gitea.configure', async () => {
+        const configureCommand = vscode.commands.registerCommand('opengitea.configure', async () => {
             try {
                 await auth.configure();
                 repositoryProvider.refresh();
@@ -178,7 +178,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Search repositories command
-        const searchRepositoriesCommand = vscode.commands.registerCommand('gitea.searchRepositories', async () => {
+        const searchRepositoriesCommand = vscode.commands.registerCommand('opengitea.searchRepositories', async () => {
             try {
                 if (!auth.isConfigured()) {
                     const result = await vscode.window.showWarningMessage(
@@ -186,7 +186,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                         'Configure', 'Cancel',
                     );
                     if (result === 'Configure') {
-                        await vscode.commands.executeCommand('gitea.configure');
+                        await vscode.commands.executeCommand('opengitea.configure');
                     }
                     return;
                 }
@@ -206,7 +206,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Search issues command
-        const searchIssuesCommand = vscode.commands.registerCommand('gitea.searchIssues', async () => {
+        const searchIssuesCommand = vscode.commands.registerCommand('opengitea.searchIssues', async () => {
             try {
                 if (!auth.isConfigured()) {
                     const result = await vscode.window.showWarningMessage(
@@ -214,7 +214,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                         'Configure', 'Cancel',
                     );
                     if (result === 'Configure') {
-                        await vscode.commands.executeCommand('gitea.configure');
+                        await vscode.commands.executeCommand('opengitea.configure');
                     }
                     return;
                 }
@@ -234,7 +234,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Search pull requests command
-        const searchPullRequestsCommand = vscode.commands.registerCommand('gitea.searchPullRequests', async () => {
+        const searchPullRequestsCommand = vscode.commands.registerCommand('opengitea.searchPullRequests', async () => {
             try {
                 if (!auth.isConfigured()) {
                     const result = await vscode.window.showWarningMessage(
@@ -242,7 +242,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                         'Configure', 'Cancel',
                     );
                     if (result === 'Configure') {
-                        await vscode.commands.executeCommand('gitea.configure');
+                        await vscode.commands.executeCommand('opengitea.configure');
                     }
                     return;
                 }
@@ -262,7 +262,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Refresh repositories command
-        const refreshRepositoriesCommand = vscode.commands.registerCommand('gitea.refreshRepositories', () => {
+        const refreshRepositoriesCommand = vscode.commands.registerCommand('opengitea.refreshRepositories', () => {
             try {
                 repositoryProvider.resetSearch();
                 issueProvider.resetSearch();
@@ -277,7 +277,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Notification monitoring command
-        const toggleNotificationsCommand = vscode.commands.registerCommand('gitea.toggleNotifications', async () => {
+        const toggleNotificationsCommand = vscode.commands.registerCommand('opengitea.toggleNotifications', async () => {
             try {
                 if (!auth.isConfigured()) {
                     vscode.window.showWarningMessage('Gitea is not configured. Please configure first.');
@@ -291,7 +291,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Get notification status command
-        const notificationStatusCommand = vscode.commands.registerCommand('gitea.notificationStatus', () => {
+        const notificationStatusCommand = vscode.commands.registerCommand('opengitea.notificationStatus', () => {
             try {
                 const status = getNotificationManager().getStatus();
                 const message = status.isMonitoring
@@ -304,12 +304,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
         });
 
-        const helloWorldCommand = vscode.commands.registerCommand('gitea.helloWorld', () => {
+        const helloWorldCommand = vscode.commands.registerCommand('opengitea.helloWorld', () => {
             vscode.window.showInformationMessage('Hello World from Gitea!');
         });
 
         // Create repository command
-        const createRepositoryCommand = vscode.commands.registerCommand('gitea.createRepository', async () => {
+        const createRepositoryCommand = vscode.commands.registerCommand('opengitea.createRepository', async () => {
             if (!auth.isConfigured()) {
                 vscode.window.showWarningMessage('Gitea is not configured. Please configure first.');
                 return;
@@ -374,7 +374,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Create issue command
-        const createIssueCommand = vscode.commands.registerCommand('gitea.createIssue', async () => {
+        const createIssueCommand = vscode.commands.registerCommand('opengitea.createIssue', async () => {
             if (!auth.isConfigured()) {
                 vscode.window.showWarningMessage('Gitea is not configured. Please configure first.');
                 return;
@@ -408,7 +408,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Import issues from XLSX command
-        const importIssuesCommand = vscode.commands.registerCommand('gitea.importIssues', async () => {
+        const importIssuesCommand = vscode.commands.registerCommand('opengitea.importIssues', async () => {
             console.log('[DEBUG] Import Issues command triggered');
 
             if (!auth.isConfigured()) {
@@ -449,7 +449,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Open repository in VS Code
-        const openRepositoryCommand = vscode.commands.registerCommand('gitea.openRepository', async (item?: RepositoryItem) => {
+        const openRepositoryCommand = vscode.commands.registerCommand('opengitea.openRepository', async (item?: RepositoryItem) => {
             if (!item || !item.repository) {
                 vscode.window.showErrorMessage('No repository selected');
                 return;
@@ -457,7 +457,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
             try {
                 const repo = item.repository;
-                const config = vscode.workspace.getConfiguration('gitea');
+                const config = vscode.workspace.getConfiguration('opengitea');
                 const defaultPath = config.get<string>('defaultRepoStartingPath') || path.join(os.homedir(), 'source', 'repos');
                 const repoPath = vscode.Uri.file(path.join(defaultPath, repo.full_name));
 
@@ -518,7 +518,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Open repository in browser
-        const openInBrowserCommand = vscode.commands.registerCommand('gitea.openInBrowser', async (item?: RepositoryItem) => {
+        const openInBrowserCommand = vscode.commands.registerCommand('opengitea.openInBrowser', async (item?: RepositoryItem) => {
             if (!item || !item.repository) {
                 vscode.window.showErrorMessage('No repository selected');
                 return;
@@ -532,7 +532,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Open issue in browser
-        const openIssueInBrowserCommand = vscode.commands.registerCommand('gitea.openIssueInBrowser', async (item?: MetadataItem) => {
+        const openIssueInBrowserCommand = vscode.commands.registerCommand('opengitea.openIssueInBrowser', async (item?: MetadataItem) => {
             if (!item || !item.metadata || !item.metadata.htmlUrl) {
                 vscode.window.showErrorMessage('No issue selected');
                 return;
@@ -546,7 +546,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Open pull request in browser
-        const openPullRequestInBrowserCommand = vscode.commands.registerCommand('gitea.openPullRequestInBrowser', async (item?: MetadataItem) => {
+        const openPullRequestInBrowserCommand = vscode.commands.registerCommand('opengitea.openPullRequestInBrowser', async (item?: MetadataItem) => {
             if (!item || !item.metadata || !item.metadata.htmlUrl) {
                 vscode.window.showErrorMessage('No pull request selected');
                 return;
@@ -560,7 +560,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Create pull request command
-        const createPullRequestCommand = vscode.commands.registerCommand('gitea.createPullRequest', async () => {
+        const createPullRequestCommand = vscode.commands.registerCommand('opengitea.createPullRequest', async () => {
             if (!auth.isConfigured()) {
                 vscode.window.showWarningMessage('Gitea is not configured. Please configure first.');
                 return;
@@ -594,7 +594,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Switch branch command
-        const switchBranchCommand = vscode.commands.registerCommand('gitea.switchBranch', async (item?: MetadataItem & RepositoryItem) => {
+        const switchBranchCommand = vscode.commands.registerCommand('opengitea.switchBranch', async (item?: MetadataItem & RepositoryItem) => {
             try {
                 let repoName: string | undefined;
 
@@ -629,7 +629,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Create branch from issue command
-        const createBranchFromIssueCommand = vscode.commands.registerCommand('gitea.createBranchFromIssue', async (treeItem?: MetadataItem) => {
+        const createBranchFromIssueCommand = vscode.commands.registerCommand('opengitea.createBranchFromIssue', async (treeItem?: MetadataItem) => {
             try {
                 if (!treeItem || !treeItem.metadata || !treeItem.metadata.repository || !treeItem.metadata.number) {
                     vscode.window.showErrorMessage('No issue selected');
@@ -644,7 +644,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Create branch from pull request command
-        const createBranchFromPRCommand = vscode.commands.registerCommand('gitea.createBranchFromPR', async (treeItem?: MetadataItem) => {
+        const createBranchFromPRCommand = vscode.commands.registerCommand('opengitea.createBranchFromPR', async (treeItem?: MetadataItem) => {
             try {
                 if (!treeItem || !treeItem.metadata || !treeItem.metadata.repository || !treeItem.metadata.number) {
                     vscode.window.showErrorMessage('No pull request selected');
@@ -659,7 +659,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Delete branch command
-        const deleteBranchCommand = vscode.commands.registerCommand('gitea.deleteBranch', async () => {
+        const deleteBranchCommand = vscode.commands.registerCommand('opengitea.deleteBranch', async () => {
             try {
                 const repos = await auth.makeRequest<GiteaRepository[]>('/api/v1/user/repos');
                 const workspaceRepos = filterRepositoriesByWorkspace(repos || []);
@@ -722,7 +722,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Restore deleted branch command
-        const restoreDeletedBranchCommand = vscode.commands.registerCommand('gitea.restoreDeletedBranch', async () => {
+        const restoreDeletedBranchCommand = vscode.commands.registerCommand('opengitea.restoreDeletedBranch', async () => {
             try {
                 const repos = await auth.makeRequest<GiteaRepository[]>('/api/v1/user/repos');
                 const workspaceRepos = filterRepositoriesByWorkspace(repos || []);
@@ -747,7 +747,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Restore branch from reflog command
-        const restoreBranchFromReflogCommand = vscode.commands.registerCommand('gitea.restoreBranchFromReflog', async () => {
+        const restoreBranchFromReflogCommand = vscode.commands.registerCommand('opengitea.restoreBranchFromReflog', async () => {
             try {
                 const repos = await auth.makeRequest<GiteaRepository[]>('/api/v1/user/repos');
                 const workspaceRepos = filterRepositoriesByWorkspace(repos || []);
@@ -773,7 +773,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Show deleted branch details command
-        const showDeletedBranchDetailsCommand = vscode.commands.registerCommand('gitea.showDeletedBranchDetails', async (deletion?: DeletedBranch, repoPath?: string) => {
+        const showDeletedBranchDetailsCommand = vscode.commands.registerCommand('opengitea.showDeletedBranchDetails', async (deletion?: DeletedBranch, repoPath?: string) => {
             try {
                 if (!deletion || !repoPath) return;
 
@@ -810,7 +810,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Restore branch from tree command
-        const restoreBranchFromTreeCommand = vscode.commands.registerCommand('gitea.restoreBranchFromTree', async (treeItem?: DeletedBranchItem) => {
+        const restoreBranchFromTreeCommand = vscode.commands.registerCommand('opengitea.restoreBranchFromTree', async (treeItem?: DeletedBranchItem) => {
             try {
                 if (!treeItem || !treeItem.repoPath || !treeItem.branchName || !treeItem.commit) {
                     vscode.window.showErrorMessage('Invalid branch selection');
@@ -830,7 +830,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Remove from history command
-        const removeFromHistoryCommand = vscode.commands.registerCommand('gitea.removeFromHistory', async (treeItem?: DeletedBranchItem) => {
+        const removeFromHistoryCommand = vscode.commands.registerCommand('opengitea.removeFromHistory', async (treeItem?: DeletedBranchItem) => {
             try {
                 if (!treeItem || !treeItem.repoPath || !treeItem.branchName) {
                     vscode.window.showErrorMessage('Invalid branch selection');
@@ -856,7 +856,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Clear all deletion history command
-        const clearDeletionHistoryCommand = vscode.commands.registerCommand('gitea.clearDeletionHistory', async () => {
+        const clearDeletionHistoryCommand = vscode.commands.registerCommand('opengitea.clearDeletionHistory', async () => {
             try {
                 const confirm = await vscode.window.showWarningMessage(
                     'Clear all deletion history? This cannot be undone.',
@@ -878,12 +878,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Refresh deleted branches command
-        const refreshDeletedBranchesCommand = vscode.commands.registerCommand('gitea.refreshDeletedBranches', () => {
+        const refreshDeletedBranchesCommand = vscode.commands.registerCommand('opengitea.refreshDeletedBranches', () => {
             deletedBranchesProvider.refresh();
         });
 
         // Export deletion history command
-        const exportDeletionHistoryCommand = vscode.commands.registerCommand('gitea.exportDeletionHistory', async () => {
+        const exportDeletionHistoryCommand = vscode.commands.registerCommand('opengitea.exportDeletionHistory', async () => {
             try {
                 await branchManager.exportDeletionHistory();
             } catch (error) {
@@ -893,7 +893,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Import deletion history command
-        const importDeletionHistoryCommand = vscode.commands.registerCommand('gitea.importDeletionHistory', async () => {
+        const importDeletionHistoryCommand = vscode.commands.registerCommand('opengitea.importDeletionHistory', async () => {
             try {
                 await branchManager.importDeletionHistory();
                 deletedBranchesProvider.refresh();
@@ -906,7 +906,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const stashManager = new StashManager();
 
         // Add profile command
-        const addProfileCommand = vscode.commands.registerCommand('gitea.addProfile', async () => {
+        const addProfileCommand = vscode.commands.registerCommand('opengitea.addProfile', async () => {
             try {
                 const added = await auth.addProfile();
                 if (added) {
@@ -914,7 +914,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     throttledRefresh();
 
                     const activeProfile = auth.activeProfile || 'default';
-                    giteaStatusBar.text = `$(account) Gitea: ${activeProfile}`;
+                    giteaStatusBar.text = `$(account) OpenGitea: ${activeProfile}`;
                 }
             } catch (error) {
                 console.error('Failed to add profile:', error);
@@ -923,7 +923,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Stash management command
-        const manageStashCommand = vscode.commands.registerCommand('gitea.manageStash', async () => {
+        const manageStashCommand = vscode.commands.registerCommand('opengitea.manageStash', async () => {
             try {
                 await stashManager.manageStashes();
             } catch (error) {
@@ -933,7 +933,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Switch profile command
-        const switchProfileCommand = vscode.commands.registerCommand('gitea.switchProfile', async () => {
+        const switchProfileCommand = vscode.commands.registerCommand('opengitea.switchProfile', async () => {
             try {
                 const switched = await auth.switchProfile();
                 if (switched) {
@@ -941,7 +941,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     throttledRefresh();
 
                     const activeProfile = auth.activeProfile || 'default';
-                    giteaStatusBar.text = `$(account) Gitea: ${activeProfile}`;
+                    giteaStatusBar.text = `$(account) OpenGitea: ${activeProfile}`;
                 }
             } catch (error) {
                 console.error('Failed to switch profile:', error);
@@ -950,7 +950,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Remove profile command
-        const removeProfileCommand = vscode.commands.registerCommand('gitea.removeProfile', async () => {
+        const removeProfileCommand = vscode.commands.registerCommand('opengitea.removeProfile', async () => {
             try {
                 await auth.removeProfile();
             } catch (error) {
@@ -1000,7 +1000,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
 
         // View Issue Details command
-        const viewIssueDetailsCommand = vscode.commands.registerCommand('gitea.viewIssueDetails', async (treeItem?: MetadataItem) => {
+        const viewIssueDetailsCommand = vscode.commands.registerCommand('opengitea.viewIssueDetails', async (treeItem?: MetadataItem) => {
             try {
                 if (treeItem && treeItem.metadata && treeItem.metadata.number && treeItem.metadata.repository) {
                     await issueWebviewProvider.showIssue(treeItem.metadata.number, treeItem.metadata.repository);
@@ -1012,7 +1012,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // View Pull Request Details command
-        const viewPullRequestDetailsCommand = vscode.commands.registerCommand('gitea.viewPullRequestDetails', async (treeItem?: MetadataItem) => {
+        const viewPullRequestDetailsCommand = vscode.commands.registerCommand('opengitea.viewPullRequestDetails', async (treeItem?: MetadataItem) => {
             try {
                 if (treeItem && treeItem.metadata && treeItem.metadata.number && treeItem.metadata.repository) {
                     await prWebviewProvider.showPullRequest(treeItem.metadata.number, treeItem.metadata.repository);
@@ -1024,7 +1024,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Show Version Info command
-        const showVersionInfoCommand = vscode.commands.registerCommand('gitea.showVersionInfo', async () => {
+        const showVersionInfoCommand = vscode.commands.registerCommand('opengitea.showVersionInfo', async () => {
             try {
                 await versionInfoProvider.show();
             } catch (error) {
@@ -1034,7 +1034,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Sync VS Code profile to Gitea (issue #18)
-        const syncProfileCommand = vscode.commands.registerCommand('gitea.syncProfileToGitea', async () => {
+        const syncProfileCommand = vscode.commands.registerCommand('opengitea.syncProfileToGitea', async () => {
             try {
                 await syncProfileToGitea(auth);
             } catch (error) {
@@ -1044,7 +1044,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
 
         // Restore VS Code profile from Gitea (issue #18)
-        const restoreProfileCommand = vscode.commands.registerCommand('gitea.restoreProfileFromGitea', async () => {
+        const restoreProfileCommand = vscode.commands.registerCommand('opengitea.restoreProfileFromGitea', async () => {
             try {
                 await restoreProfileFromGitea(auth);
             } catch (error) {
@@ -1064,7 +1064,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Auto-start notifications if enabled
         if (auth.isConfigured()) {
             try {
-                const config = vscode.workspace.getConfiguration('gitea');
+                const config = vscode.workspace.getConfiguration('opengitea');
                 if (config.get<boolean>('enableNotifications')) {
                     setTimeout(() => {
                         getNotificationManager().startMonitoring().catch(err => {
@@ -1097,7 +1097,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 'Configure Now', 'Later',
             );
             if (result === 'Configure Now') {
-                await vscode.commands.executeCommand('gitea.configure');
+                await vscode.commands.executeCommand('opengitea.configure');
             }
         }
     } catch (error) {

@@ -28,7 +28,7 @@ export class GiteaAuth {
      */
     async initialize(): Promise<boolean> {
         try {
-            const config = vscode.workspace.getConfiguration('gitea');
+            const config = vscode.workspace.getConfiguration('opengitea');
 
             const savedProfiles = (config.get<Record<string, GiteaProfile>>('profiles') || {});
             this.profiles = savedProfiles;
@@ -218,7 +218,7 @@ export class GiteaAuth {
      */
     async saveProfiles(): Promise<void> {
         try {
-            const config = vscode.workspace.getConfiguration('gitea');
+            const config = vscode.workspace.getConfiguration('opengitea');
             await config.update('profiles', this.profiles, vscode.ConfigurationTarget.Global);
             await config.update('activeProfile', this.activeProfile, vscode.ConfigurationTarget.Global);
         } catch (error) {
@@ -232,7 +232,7 @@ export class GiteaAuth {
      */
     async switchProfile(): Promise<boolean> {
         try {
-            const config = vscode.workspace.getConfiguration('gitea');
+            const config = vscode.workspace.getConfiguration('opengitea');
             const savedProfiles = (config.get<Record<string, GiteaProfile>>('profiles') || {});
             this.profiles = savedProfiles;
 
@@ -283,7 +283,7 @@ export class GiteaAuth {
      * List all available profiles.
      */
     listProfiles(): { name: string; url: string; isActive: boolean }[] {
-        const config = vscode.workspace.getConfiguration('gitea');
+        const config = vscode.workspace.getConfiguration('opengitea');
         const savedProfiles = (config.get<Record<string, GiteaProfile>>('profiles') || {});
         this.profiles = savedProfiles;
 
@@ -299,7 +299,7 @@ export class GiteaAuth {
      */
     async removeProfile(profileName?: string): Promise<boolean> {
         try {
-            const config = vscode.workspace.getConfiguration('gitea');
+            const config = vscode.workspace.getConfiguration('opengitea');
             const savedProfiles = (config.get<Record<string, GiteaProfile>>('profiles') || {});
             this.profiles = savedProfiles;
 

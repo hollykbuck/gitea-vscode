@@ -101,7 +101,7 @@ export class DeletedBranchesProvider implements vscode.TreeDataProvider<vscode.T
             item.iconPath = new vscode.ThemeIcon('git-branch', new vscode.ThemeColor('gitDecoration.deletedResourceForeground'));
             item.contextValue = 'deletedBranch';
             item.command = {
-                command: 'gitea.showDeletedBranchDetails',
+                command: 'opengitea.showDeletedBranchDetails',
                 title: 'Show Details',
                 arguments: [deletion, repoPath],
             };

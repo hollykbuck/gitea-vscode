@@ -19,14 +19,14 @@ import {
 let hasPromptedNoWorkspaceRepos = false;
 
 export function getRepoScanDepth(): number {
-    const config = vscode.workspace.getConfiguration('gitea');
+    const config = vscode.workspace.getConfiguration('opengitea');
     const depth = Number(config.get<number>('repoScanDepth', 2));
     if (Number.isFinite(depth) && depth >= 0) return Math.floor(depth);
     return 2;
 }
 
 export function shouldShowAllReposWhenNoWorkspace(): boolean {
-    const config = vscode.workspace.getConfiguration('gitea');
+    const config = vscode.workspace.getConfiguration('opengitea');
     return Boolean(config.get<boolean>('showAllReposWhenNoWorkspace', false));
 }
 
@@ -110,13 +110,13 @@ async function promptForWorkspaceRepos(allRepos: GiteaRepository[]): Promise<'sh
         });
 
         if (selected) {
-            await vscode.commands.executeCommand('gitea.openRepository', { repository: selected.value });
+            await vscode.commands.executeCommand('opengitea.openRepository', { repository: selected.value });
         }
         return null;
     }
 
     if (action === 'Show All Repos') {
-        const config = vscode.workspace.getConfiguration('gitea');
+        const config = vscode.workspace.getConfiguration('opengitea');
         await config.update('showAllReposWhenNoWorkspace', true, vscode.ConfigurationTarget.Global);
         return 'showAll';
     }

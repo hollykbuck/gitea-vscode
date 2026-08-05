@@ -174,7 +174,7 @@ export class PullRequestWebviewProvider {
             }
 
             const panel = vscode.window.createWebviewPanel(
-                'giteaPullRequest',
+                'opengiteaPullRequest',
                 `PR #${prNumber}: ${prDetails.title}`,
                 vscode.ViewColumn.One,
                 {
@@ -206,7 +206,7 @@ export class PullRequestWebviewProvider {
                                 await this.closePullRequest(owner, repo, prNumber);
                                 break;
                             case 'createBranch':
-                                vscode.commands.executeCommand('gitea.createBranchFromPR', {
+                                vscode.commands.executeCommand('opengitea.createBranchFromPR', {
                                     metadata: { repository: `${owner}/${repo}`, number: prNumber },
                                 });
                                 break;
@@ -876,7 +876,7 @@ export class IssueWebviewProvider {
             }
 
             const panel = vscode.window.createWebviewPanel(
-                'giteaIssue',
+                'opengiteaIssue',
                 `Issue #${issueNumber}: ${issueDetails.title}`,
                 vscode.ViewColumn.One,
                 {
@@ -916,7 +916,7 @@ export class IssueWebviewProvider {
                                 await this._refreshPanel(panel, owner, repo, issueNumber, currentUser);
                                 break;
                             case 'createBranch':
-                                vscode.commands.executeCommand('gitea.createBranchFromIssue', {
+                                vscode.commands.executeCommand('opengitea.createBranchFromIssue', {
                                     metadata: { repository: `${owner}/${repo}`, number: issueNumber },
                                 });
                                 break;
@@ -1346,7 +1346,7 @@ function dlg(title, msg, cb) {
     async showCreateIssue(repositories: GiteaRepository[]): Promise<void> {
         try {
             const panel = vscode.window.createWebviewPanel(
-                'giteaCreateIssue',
+                'opengiteaCreateIssue',
                 'Create New Issue',
                 vscode.ViewColumn.One,
                 {
@@ -1858,7 +1858,7 @@ export class PullRequestCreationProvider {
     async showCreatePullRequest(repositories: GiteaRepository[]): Promise<void> {
         try {
             const panel = vscode.window.createWebviewPanel(
-                'giteaCreatePR',
+                'opengiteaCreatePR',
                 'Create New Pull Request',
                 vscode.ViewColumn.One,
                 {
@@ -2236,7 +2236,7 @@ export class VersionInfoProvider {
         }
 
         this._panel = vscode.window.createWebviewPanel(
-            'gitea.versionInfo',
+            'opengitea.versionInfo',
             'Gitea: Version Info',
             vscode.ViewColumn.Active,
             { enableScripts: true },
@@ -2386,9 +2386,9 @@ export class VersionInfoProvider {
 <div class="card">
     <div>
         <div class="label">Gitea <button class="refresh-btn" onclick="requestRefresh()" id="refresh-btn">(refresh)</button></div>
-        <div class="value" id="gitea-ver"><span class="loading">Fetching...</span></div>
+        <div class="value" id="opengitea-ver"><span class="loading">Fetching...</span></div>
     </div>
-    <button class="copy-btn" id="copy-gitea-btn" onclick="copyText('gitea-ver')" disabled>Copy</button>
+    <button class="copy-btn" id="copy-opengitea-btn" onclick="copyText('opengitea-ver')" disabled>Copy</button>
 </div>
 
 <button class="copy-all-btn" id="copy-all-btn" onclick="copyAll()" disabled>Copy All to Clipboard</button>
@@ -2406,14 +2406,14 @@ export class VersionInfoProvider {
     function copyAll() {
         const ext = document.getElementById('ext-ver').textContent.trim();
         const vs = document.getElementById('vscode-ver').textContent.trim();
-        const gitea = document.getElementById('gitea-ver').textContent.trim();
-        const text = 'Gitea Extension: ' + ext + '\\nVS Code: ' + vs + '\\nGitea Server: ' + gitea;
+        const gitea = document.getElementById('opengitea-ver').textContent.trim();
+        const text = 'OpenGitea Extension: ' + ext + '\\nVS Code: ' + vs + '\\nOpenGitea Server: ' + gitea;
         vscode.postMessage({ command: 'copyToClipboard', text });
     }
 
     function requestRefresh() {
-        document.getElementById('gitea-ver').innerHTML = '<span class="loading">Fetching...</span>';
-        document.getElementById('copy-gitea-btn').disabled = true;
+        document.getElementById('opengitea-ver').innerHTML = '<span class="loading">Fetching...</span>';
+        document.getElementById('copy-opengitea-btn').disabled = true;
         document.getElementById('copy-all-btn').disabled = true;
         document.getElementById('refresh-btn').disabled = true;
         giteaReady = false;
@@ -2423,13 +2423,13 @@ export class VersionInfoProvider {
     window.addEventListener('message', event => {
         const msg = event.data;
         if (msg.command === 'setGiteaVersion') {
-            const el = document.getElementById('gitea-ver');
+            const el = document.getElementById('opengitea-ver');
             if (msg.error) {
                 el.innerHTML = '<span class="error-text">Unavailable (' + msg.error + ')</span>';
             } else {
                 el.textContent = msg.version;
                 giteaReady = true;
-                document.getElementById('copy-gitea-btn').disabled = false;
+                document.getElementById('copy-opengitea-btn').disabled = false;
                 document.getElementById('copy-all-btn').disabled = false;
             }
             document.getElementById('refresh-btn').disabled = false;

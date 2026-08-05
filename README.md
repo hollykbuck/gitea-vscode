@@ -1,4 +1,4 @@
-## Gitea Extension for VS Code
+## OpenGitea — Gitea Extension for VS Code
 
 Integrate Gitea into VS Code: browse repositories, track issues and pull requests, search across your projects, receive notifications, and jump to items in your browser — all from the Activity Bar.
 
@@ -157,7 +157,7 @@ Contributions are welcome! Whether you're fixing bugs, adding features, or impro
 1. **Fork the repository** on Gitea or GitHub.
 2. **Clone your fork** locally:
    ```bash
-   git clone https://github.com/terence-carrera/gitea-vscode.git
+   git clone https://github.com/hollykbuck/gitea-vscode.git
    cd gitea-vscode
    ```
 3. **Install dependencies**:
@@ -188,10 +188,14 @@ Contributions are welcome! Whether you're fixing bugs, adding features, or impro
 
 #### Reporting Issues
 
-If you encounter bugs or have feature requests, please [open an issue](https://github.com/terence-carrera/gitea-vscode/issues) with:
+If you encounter bugs or have feature requests, please [open an issue](https://github.com/hollykbuck/gitea-vscode/issues) with:
 - A clear description of the problem or suggestion
 - Steps to reproduce (for bugs)
 - Your environment (VS Code version, OS, Gitea version)
+
+## Acknowledgements
+
+This project is a fork of [terence-carrera/gitea-vscode](https://github.com/terence-carrera/gitea-vscode), released under the same [GPL-3.0 license](LICENSE). All original work is Copyright (c) 2024 Terence Carrera; modifications are Copyright (c) 2026 hollykbuck.
 
 ### Release Notes
 
