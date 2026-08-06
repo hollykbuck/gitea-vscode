@@ -73,6 +73,7 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 2. Configure your Gitea instance via the command palette — run `OpenGitea: Configure Instance` and choose one of:
    - **Personal Access Token**: provide your instance URL, a token, and a profile name.
    - **OAuth (browser)**: sign in through your Gitea server (see [OAuth sign-in](#oauth-sign-in)).
+   - **Git Credential (git)**: store the token with `git credential` (see [Git Credential sign-in](#git-credential-sign-in)).
 3. Open the OpenGitea Activity Bar icon to explore Repositories, Issues, and Pull Requests.
 
 ### OAuth Sign-in
@@ -103,8 +104,9 @@ OAuth profiles show up like any other profile in `OpenGitea: Switch Profile`; th
 
 ### Commands
 
-- OpenGitea: Configure Instance (`opengitea.configure`): set instance URL and token or sign in with OAuth.
+- OpenGitea: Configure Instance (`opengitea.configure`): set instance URL and token, sign in with OAuth, or use git credential.
 - OpenGitea: Sign in with OAuth (`opengitea.signInWithOAuth`): browser-based OAuth2 sign-in.
+- OpenGitea: Sign in with Git Credential (`opengitea.signInWithGitCredential`): store the token via `git credential`.
 - OpenGitea: Search Repositories (`opengitea.searchRepositories`)
 - OpenGitea: Search Issues (`opengitea.searchIssues`)
 - OpenGitea: Search Pull Requests (`opengitea.searchPullRequests`)
@@ -155,7 +157,7 @@ OAuth profiles show up like any other profile in `OpenGitea: Switch Profile`; th
 
 - VS Code 1.90.0 or newer.
 - Git installed.
-- Access to a Gitea instance and a Personal Access Token.
+- Access to a Gitea instance and one of: a Personal Access Token, an OAuth2 application (for browser sign-in), or a `git` credential helper (for git credential sign-in).
   - **Required Token Permissions (Read & Write)**:
     - **Repository**: Create repositories, access repository metadata, manage branches
     - **Issue**: View, create, import, and comment on issues

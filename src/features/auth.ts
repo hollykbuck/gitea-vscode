@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { GiteaClient, RequestOptions } from '../api/client';
 import { GiteaProfile, GiteaUser } from '../types/gitea';
 import { OAUTH_PROVIDER_ID, oauthServerScope, signOutGiteaSession } from './oauth';
+import { gitCredentialApprove, gitCredentialFill, gitCredentialReject } from './gitCredential';
 
 /**
  * Manages Gitea authentication: profiles stored in VS Code settings, the
@@ -42,7 +43,9 @@ export class GiteaAuth {
                 this.instanceUrl = profile.instanceUrl;
                 this.authToken = profile.authType === 'oauth'
                     ? await this.resolveOAuthToken(profile.instanceUrl, false)
-                    : (profile.authToken ?? null);
+                    : profile.authType === 'gitcredential'
+                        ? await this.resolveGitCredentialToken(profile.instanceUrl)
+                        : (profile.authToken ?? null);
             } else {
                 // Legacy configuration for backward compatibility
                 this.instanceUrl = config.get<string>('instanceUrl') ?? null;
@@ -92,7 +95,7 @@ export class GiteaAuth {
     async configure(): Promise<void> {
         try {
             const method = await vscode.window.showQuickPick(
-                ['Personal Access Token', 'OAuth (browser)'],
+                ['Personal Access Token', 'OAuth (browser)', 'Git Credential (git)'],
                 { placeHolder: 'How do you want to sign in to Gitea?' },
             );
 
@@ -100,6 +103,11 @@ export class GiteaAuth {
 
             if (method === 'OAuth (browser)') {
                 await this.signInWithOAuth();
+                return;
+            }
+
+            if (method === 'Git Credential (git)') {
+                await this.signInWithGitCredential();
                 return;
             }
 
@@ -171,6 +179,80 @@ export class GiteaAuth {
     }
 
     /**
+     * Sign in to a Gitea instance storing the token in the git credential
+     * store (`git credential approve`), shared with git push/clone. The token
+     * itself is never written to VS Code settings.
+     */
+    async signInWithGitCredential(): Promise<boolean> {
+        const instanceUrl = await this.promptInstanceUrl(this.instanceUrl);
+        if (!instanceUrl) return false;
+
+        const existing = await gitCredentialFill(instanceUrl);
+        let username = existing?.username ?? '';
+        let token = existing?.password ?? '';
+
+        if (token) {
+            const useExisting = await vscode.window.showInformationMessage(
+                `A git credential is already stored for ${new URL(instanceUrl).host}. Use it?`,
+                'Use Stored', 'Enter New',
+            );
+            if (useExisting !== 'Use Stored') token = '';
+        }
+
+        if (!token) {
+            vscode.window.showInformationMessage(
+                `No credential was returned by "git credential" for ${new URL(instanceUrl).host}. ` +
+                `If you use a custom helper (such as tea), make sure it works with "git credential fill". ` +
+                'You can enter a token below to store it.',
+            );
+
+            username = (await vscode.window.showInputBox({
+                prompt: 'Enter your Gitea username',
+                value: username || undefined,
+                validateInput: (value) => (value ? null : 'Username is required'),
+            })) ?? '';
+            if (!username) return false;
+
+            token = (await vscode.window.showInputBox({
+                prompt: 'Enter your Gitea access token',
+                password: true,
+                validateInput: (value) => (value ? null : 'Token is required'),
+            })) ?? '';
+            if (!token) return false;
+
+            try {
+                await gitCredentialApprove(instanceUrl, username, token);
+            } catch (error) {
+                vscode.window.showErrorMessage(
+                    `Failed to store the git credential: ${error instanceof Error ? error.message : String(error)}`,
+                );
+                return false;
+            }
+        }
+
+        const profileName = await this.promptProfileName(this.activeProfile || 'default');
+        if (!profileName) return false;
+
+        this.profiles[profileName] = { instanceUrl, authType: 'gitcredential' };
+        this.activeProfile = profileName;
+        this.instanceUrl = instanceUrl;
+        this.authToken = token;
+        this.syncCredentials();
+
+        await this.saveProfiles();
+        return await this.validateCredentials();
+    }
+
+    /**
+     * Resolve the token for a git-credential profile from the git credential
+     * store. Returns `null` when nothing is stored (without prompting).
+     */
+    private async resolveGitCredentialToken(instanceUrl: string): Promise<string | null> {
+        const credential = await gitCredentialFill(instanceUrl);
+        return credential?.password ?? null;
+    }
+
+    /**
      * Resolve the OAuth access token for a Gitea instance through the
      * {@link OAUTH_PROVIDER_ID} authentication provider.
      */
@@ -232,7 +314,7 @@ export class GiteaAuth {
     async addProfile(): Promise<boolean> {
         try {
             const method = await vscode.window.showQuickPick(
-                ['Personal Access Token', 'OAuth (browser)'],
+                ['Personal Access Token', 'OAuth (browser)', 'Git Credential (git)'],
                 { placeHolder: 'How do you want to authenticate?' },
             );
 
@@ -240,6 +322,10 @@ export class GiteaAuth {
 
             if (method === 'OAuth (browser)') {
                 return await this.signInWithOAuth();
+            }
+
+            if (method === 'Git Credential (git)') {
+                return await this.signInWithGitCredential();
             }
 
             const instanceUrl = await this.promptInstanceUrl(null);
@@ -349,7 +435,9 @@ export class GiteaAuth {
             this.instanceUrl = profile.instanceUrl;
             this.authToken = profile.authType === 'oauth'
                 ? await this.resolveOAuthToken(profile.instanceUrl, true)
-                : (profile.authToken ?? null);
+                : profile.authType === 'gitcredential'
+                    ? await this.resolveGitCredentialToken(profile.instanceUrl)
+                    : (profile.authToken ?? null);
             this.syncCredentials();
 
             await this.saveProfiles();
@@ -426,6 +514,20 @@ export class GiteaAuth {
 
             if (targetProfile?.authType === 'oauth') {
                 await signOutGiteaSession(targetProfile.instanceUrl);
+            } else if (targetProfile?.authType === 'gitcredential') {
+                const erase = await vscode.window.showWarningMessage(
+                    `Also erase the stored git credential for ${new URL(targetProfile.instanceUrl).host}?`,
+                    'Erase', 'Keep',
+                );
+                if (erase === 'Erase') {
+                    try {
+                        await gitCredentialReject(targetProfile.instanceUrl);
+                    } catch (error) {
+                        vscode.window.showErrorMessage(
+                            `Failed to erase the git credential: ${error instanceof Error ? error.message : String(error)}`,
+                        );
+                    }
+                }
             }
 
             vscode.window.showInformationMessage(`Profile "${target}" removed successfully`);

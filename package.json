@@ -32,6 +32,11 @@
                 "icon": "$(account)"
             },
             {
+                "command": "opengitea.signInWithGitCredential",
+                "title": "OpenGitea: Sign in with Git Credential",
+                "icon": "$(key)"
+            },
+            {
                 "command": "opengitea.searchRepositories",
                 "title": "OpenGitea: Search Repositories",
                 "icon": "$(search)"
@@ -426,7 +431,8 @@
                                 "type": "string",
                                 "enum": [
                                     "token",
-                                    "oauth"
+                                    "oauth",
+                                    "gitcredential"
                                 ],
                                 "description": "Authentication method used by this profile"
                             }

@@ -183,7 +183,7 @@ export interface GiteaProfile {
     /** Personal Access Token. Not stored for OAuth profiles. */
     authToken?: string;
     /** Authentication method used by this profile. */
-    authType?: 'token' | 'oauth';
+    authType?: 'token' | 'oauth' | 'gitcredential';
 }
 
 /** A branch deletion tracked by the extension for later restoration. */

@@ -193,6 +193,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
         });
 
+        // Git credential sign-in command
+        const signInWithGitCredentialCommand = vscode.commands.registerCommand(
+            'opengitea.signInWithGitCredential',
+            async () => {
+                try {
+                    await auth.signInWithGitCredential();
+                    repositoryProvider.refresh();
+                    issueProvider.refresh();
+                    pullRequestProvider.refresh();
+                } catch (error) {
+                    console.error('Failed to sign in with git credential:', error);
+                    vscode.window.showErrorMessage(`Failed to sign in with git credential: ${errorMessage(error)}`);
+                }
+            },
+        );
+
         // Search repositories command
         const searchRepositoriesCommand = vscode.commands.registerCommand('opengitea.searchRepositories', async () => {
             try {
@@ -982,6 +998,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             deletedBranchesTreeView,
             configureCommand,
             signInWithOAuthCommand,
+            signInWithGitCredentialCommand,
             searchRepositoriesCommand,
             searchIssuesCommand,
             searchPullRequestsCommand,
