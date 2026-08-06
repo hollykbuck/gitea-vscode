@@ -82,6 +82,11 @@
                 "icon": "$(trash)"
             },
             {
+                "command": "opengitea.actions.updateSecret",
+                "title": "Update Secret",
+                "icon": "$(edit)"
+            },
+            {
                 "command": "opengitea.actions.addVariable",
                 "title": "Add Variable",
                 "icon": "$(add)"
@@ -442,9 +447,24 @@
                     "group": "1_actions"
                 },
                 {
+                    "command": "opengitea.actions.addSecret",
+                    "when": "view == opengitea.actionsSettings && viewItem == actionSettingsGroupSecrets",
+                    "group": "inline"
+                },
+                {
+                    "command": "opengitea.actions.addVariable",
+                    "when": "view == opengitea.actionsSettings && viewItem == actionSettingsGroupVariables",
+                    "group": "inline"
+                },
+                {
                     "command": "opengitea.actions.deleteSecret",
                     "when": "view == opengitea.actionsSettings && viewItem == actionSecret",
                     "group": "inline"
+                },
+                {
+                    "command": "opengitea.actions.updateSecret",
+                    "when": "view == opengitea.actionsSettings && viewItem == actionSecret",
+                    "group": "1_actions"
                 },
                 {
                     "command": "opengitea.actions.updateVariable",

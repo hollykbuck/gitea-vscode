@@ -116,7 +116,7 @@ class SettingsGroupItem extends vscode.TreeItem {
     constructor(public readonly repo: GiteaRepository, public readonly group: string) {
         super(group, vscode.TreeItemCollapsibleState.Collapsed);
         this.iconPath = new vscode.ThemeIcon(groupIcon(group));
-        this.contextValue = 'actionSettingsGroup';
+        this.contextValue = `actionSettingsGroup${group}`;
     }
 }
 
@@ -428,7 +428,7 @@ async function pickRepo(auth: GiteaAuth): Promise<GiteaRepository | null> {
     return selected?.repo ?? null;
 }
 
-async function addSecret(auth: GiteaAuth, settingsProvider: ActionsSettingsProvider, item?: ActionsRepoItem): Promise<void> {
+async function addSecret(auth: GiteaAuth, settingsProvider: ActionsSettingsProvider, item?: { repo: GiteaRepository }): Promise<void> {
     const repo = item?.repo ?? await pickRepo(auth);
     if (!repo) return;
     const { owner, name } = repoParts(repo);
@@ -454,6 +454,24 @@ async function addSecret(auth: GiteaAuth, settingsProvider: ActionsSettingsProvi
     vscode.window.showInformationMessage(`Secret "${secretName}" saved.`);
 }
 
+async function updateSecret(auth: GiteaAuth, settingsProvider: ActionsSettingsProvider, item?: ActionSecretItem): Promise<void> {
+    if (!item?.secret.name) return;
+    const value = await vscode.window.showInputBox({
+        prompt: `New value for secret "${item.secret.name}"`,
+        password: true,
+        validateInput: input => (input ? null : 'Secret value is required'),
+    });
+    if (value === undefined) return;
+
+    const { owner, name } = repoParts(item.repo);
+    await auth.makeRequest(
+        `/api/v1/repos/${owner}/${name}/actions/secrets/${encodeURIComponent(item.secret.name)}`,
+        { method: 'PUT', body: { name: item.secret.name, data: value } },
+    );
+    settingsProvider.refresh();
+    vscode.window.showInformationMessage(`Secret "${item.secret.name}" updated.`);
+}
+
 async function deleteSecret(auth: GiteaAuth, settingsProvider: ActionsSettingsProvider, item?: ActionSecretItem): Promise<void> {
     if (!item?.secret.name) return;
     const confirm = await vscode.window.showWarningMessage(
@@ -468,7 +486,7 @@ async function deleteSecret(auth: GiteaAuth, settingsProvider: ActionsSettingsPr
     vscode.window.showInformationMessage(`Secret "${item.secret.name}" deleted.`);
 }
 
-async function addVariable(auth: GiteaAuth, settingsProvider: ActionsSettingsProvider, item?: ActionsRepoItem): Promise<void> {
+async function addVariable(auth: GiteaAuth, settingsProvider: ActionsSettingsProvider, item?: { repo: GiteaRepository }): Promise<void> {
     const repo = item?.repo ?? await pickRepo(auth);
     if (!repo) return;
     const { owner, name } = repoParts(repo);
@@ -572,6 +590,7 @@ export function createActionsFeature(context: vscode.ExtensionContext, auth: Git
         vscode.commands.registerCommand('opengitea.actions.downloadArtifacts', wrap(item => downloadArtifacts(auth, item), 'Failed to download artifacts')),
         vscode.commands.registerCommand('opengitea.actions.addSecret', wrap(item => addSecret(auth, settingsProvider, item), 'Failed to create secret')),
         vscode.commands.registerCommand('opengitea.actions.deleteSecret', wrap(item => deleteSecret(auth, settingsProvider, item), 'Failed to delete secret')),
+        vscode.commands.registerCommand('opengitea.actions.updateSecret', wrap(item => updateSecret(auth, settingsProvider, item), 'Failed to update secret')),
         vscode.commands.registerCommand('opengitea.actions.addVariable', wrap(item => addVariable(auth, settingsProvider, item), 'Failed to create variable')),
         vscode.commands.registerCommand('opengitea.actions.updateVariable', wrap(item => updateVariable(auth, settingsProvider, item), 'Failed to update variable')),
         vscode.commands.registerCommand('opengitea.actions.deleteVariable', wrap(item => deleteVariable(auth, settingsProvider, item), 'Failed to delete variable')),

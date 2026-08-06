@@ -135,7 +135,7 @@ The profile only records the instance URL and auth type — the token stays in t
 - View Job Logs (`opengitea.actions.viewJobLogs`)
 - View Run Logs (`opengitea.actions.viewRunLogs`): aggregated logs for all jobs in a run
 - Download Artifacts (`opengitea.actions.downloadArtifacts`)
-- Add/Delete Secret (`opengitea.actions.addSecret` / `opengitea.actions.deleteSecret`)
+- Add/Update/Delete Secret (`opengitea.actions.addSecret` / `opengitea.actions.updateSecret` / `opengitea.actions.deleteSecret`)
 - Add/Update/Delete Variable (`opengitea.actions.addVariable` / `opengitea.actions.updateVariable` / `opengitea.actions.deleteVariable`)
 - OpenGitea: Search Repositories (`opengitea.searchRepositories`)
 - OpenGitea: Search Issues (`opengitea.searchIssues`)
