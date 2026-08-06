@@ -1,5 +1,8 @@
 ## OpenGitea — Gitea Extension for VS Code
+
 [![CI Build, Test & Package](https://github.com/hollykbuck/gitea-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/hollykbuck/gitea-vscode/actions/workflows/ci.yml)
+
+
 Integrate Gitea into VS Code: browse repositories, track issues and pull requests, search across your projects, receive notifications, and jump to items in your browser — all from the Activity Bar.
 
 ### Features
