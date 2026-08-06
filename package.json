@@ -642,7 +642,8 @@
         "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
         "lint": "eslint .",
         "pretest": "npm run lint && npm run compile:tests",
-        "test": "vscode-test"
+        "test": "vscode-test",
+        "package": "vsce package"
     },
     "devDependencies": {
         "@types/mocha": "^10.0.10",
@@ -652,6 +653,7 @@
         "@typescript-eslint/parser": "^8.66.0",
         "@vscode/test-cli": "^0.0.12",
         "@vscode/test-electron": "^2.5.2",
+        "@vscode/vsce": "^3.9.2",
         "esbuild": "^0.28.1",
         "eslint": "^9.39.1",
         "typescript": "~5.9"
