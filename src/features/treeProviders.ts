@@ -193,7 +193,7 @@ export function filterRepositoriesByWorkspace(allRepos: GiteaRepository[]): Gite
  * NOT awaited so an unanswered (non-modal) notification cannot leave the tree
  * in its loading state forever.
  */
-function resolveWorkspaceRepos(allRepos: GiteaRepository[], refresh: () => void): GiteaRepository[] {
+export function resolveWorkspaceRepos(allRepos: GiteaRepository[], refresh: () => void): GiteaRepository[] {
     const workspaceRepos = filterRepositoriesByWorkspace(allRepos);
     if (workspaceRepos.length === 0 && !shouldShowAllReposWhenNoWorkspace()) {
         void promptForWorkspaceRepos(allRepos).then(action => {

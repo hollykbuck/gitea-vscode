@@ -37,6 +37,66 @@
                 "icon": "$(key)"
             },
             {
+                "command": "opengitea.actions.refresh",
+                "title": "Refresh Actions",
+                "icon": "$(refresh)"
+            },
+            {
+                "command": "opengitea.actions.openRunInBrowser",
+                "title": "Open Run in Browser",
+                "icon": "$(globe)"
+            },
+            {
+                "command": "opengitea.actions.rerunRun",
+                "title": "Rerun Workflow Run",
+                "icon": "$(run-all)"
+            },
+            {
+                "command": "opengitea.actions.rerunFailedJobs",
+                "title": "Rerun Failed Jobs",
+                "icon": "$(debug-restart)"
+            },
+            {
+                "command": "opengitea.actions.viewJobLogs",
+                "title": "View Job Logs",
+                "icon": "$(output)"
+            },
+            {
+                "command": "opengitea.actions.viewRunLogs",
+                "title": "View Run Logs",
+                "icon": "$(output)"
+            },
+            {
+                "command": "opengitea.actions.downloadArtifacts",
+                "title": "Download Artifacts",
+                "icon": "$(download)"
+            },
+            {
+                "command": "opengitea.actions.addSecret",
+                "title": "Add Secret",
+                "icon": "$(key)"
+            },
+            {
+                "command": "opengitea.actions.deleteSecret",
+                "title": "Delete Secret",
+                "icon": "$(trash)"
+            },
+            {
+                "command": "opengitea.actions.addVariable",
+                "title": "Add Variable",
+                "icon": "$(add)"
+            },
+            {
+                "command": "opengitea.actions.updateVariable",
+                "title": "Update Variable",
+                "icon": "$(edit)"
+            },
+            {
+                "command": "opengitea.actions.deleteVariable",
+                "title": "Delete Variable",
+                "icon": "$(trash)"
+            },
+            {
                 "command": "opengitea.searchRepositories",
                 "title": "OpenGitea: Search Repositories",
                 "icon": "$(search)"
@@ -223,6 +283,11 @@
                     "id": "opengitea-explorer",
                     "title": "OpenGitea",
                     "icon": "media/gitea-logo.svg"
+                },
+                {
+                    "id": "opengitea-actions",
+                    "title": "OpenGitea Actions",
+                    "icon": "media/gitea-action.svg"
                 }
             ]
         },
@@ -247,6 +312,18 @@
                     "id": "opengitea.deletedBranches",
                     "name": "Deleted Branches",
                     "icon": "$(trash)"
+                }
+            ],
+            "opengitea-actions": [
+                {
+                    "id": "opengitea.actions",
+                    "name": "Workflow Runs",
+                    "icon": "$(play)"
+                },
+                {
+                    "id": "opengitea.actionsSettings",
+                    "name": "Settings",
+                    "icon": "$(gear)"
                 }
             ]
         },
@@ -316,9 +393,69 @@
                     "command": "opengitea.importDeletionHistory",
                     "when": "view == opengitea.deletedBranches",
                     "group": "1_export"
+                },
+                {
+                    "command": "opengitea.actions.refresh",
+                    "when": "view == opengitea.actions || view == opengitea.actionsSettings",
+                    "group": "navigation"
                 }
             ],
             "view/item/context": [
+                {
+                    "command": "opengitea.actions.openRunInBrowser",
+                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "group": "inline"
+                },
+                {
+                    "command": "opengitea.actions.rerunRun",
+                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "group": "1_actions"
+                },
+                {
+                    "command": "opengitea.actions.rerunFailedJobs",
+                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "group": "1_actions"
+                },
+                {
+                    "command": "opengitea.actions.downloadArtifacts",
+                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "group": "1_actions"
+                },
+                {
+                    "command": "opengitea.actions.viewJobLogs",
+                    "when": "view == opengitea.actions && viewItem == actionJob",
+                    "group": "inline"
+                },
+                {
+                    "command": "opengitea.actions.viewRunLogs",
+                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "group": "1_logs"
+                },
+                {
+                    "command": "opengitea.actions.addSecret",
+                    "when": "view == opengitea.actionsSettings && viewItem == actionsSettingsRepo",
+                    "group": "inline"
+                },
+                {
+                    "command": "opengitea.actions.addVariable",
+                    "when": "view == opengitea.actionsSettings && viewItem == actionsSettingsRepo",
+                    "group": "1_actions"
+                },
+                {
+                    "command": "opengitea.actions.deleteSecret",
+                    "when": "view == opengitea.actionsSettings && viewItem == actionSecret",
+                    "group": "inline"
+                },
+                {
+                    "command": "opengitea.actions.updateVariable",
+                    "when": "view == opengitea.actionsSettings && viewItem == actionVariable",
+                    "group": "inline"
+                },
+                {
+                    "command": "opengitea.actions.deleteVariable",
+                    "when": "view == opengitea.actionsSettings && viewItem == actionVariable",
+                    "group": "1_actions"
+                },
                 {
                     "command": "opengitea.openRepository",
                     "when": "view == opengitea.repositories && viewItem == repository",

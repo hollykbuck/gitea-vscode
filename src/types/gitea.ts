@@ -186,6 +186,113 @@ export interface GiteaProfile {
     authType?: 'token' | 'oauth' | 'gitcredential';
 }
 
+// ---------------------------------------------------------------------------
+// Gitea Actions (CI/CD)
+// ---------------------------------------------------------------------------
+
+export interface GiteaActionRun {
+    id?: number;
+    status?: string;
+    conclusion?: string;
+    display_title?: string;
+    event?: string;
+    head_branch?: string;
+    head_sha?: string;
+    html_url?: string;
+    url?: string;
+    run_number?: number;
+    run_attempt?: number;
+    path?: string;
+    started_at?: string;
+    completed_at?: string;
+    actor?: GiteaUser;
+    trigger_actor?: GiteaUser;
+}
+
+export interface GiteaActionRunsResponse {
+    total_count?: number;
+    workflow_runs?: GiteaActionRun[];
+}
+
+export interface GiteaActionStep {
+    number?: number;
+    name?: string;
+    status?: string;
+    conclusion?: string;
+    started_at?: string;
+    completed_at?: string;
+}
+
+export interface GiteaActionJob {
+    id?: number;
+    name?: string;
+    status?: string;
+    conclusion?: string;
+    run_id?: number;
+    run_url?: string;
+    html_url?: string;
+    runner_name?: string;
+    started_at?: string;
+    completed_at?: string;
+    steps?: GiteaActionStep[];
+}
+
+export interface GiteaActionJobsResponse {
+    total_count?: number;
+    jobs?: GiteaActionJob[];
+}
+
+export interface GiteaActionSecret {
+    name?: string;
+    description?: string;
+    created_at?: string;
+}
+
+export interface GiteaActionVariable {
+    name?: string;
+    data?: string;
+    description?: string;
+    owner_id?: number;
+    repo_id?: number;
+}
+
+export interface GiteaActionRunnerLabel {
+    id?: number;
+    name?: string;
+    type?: string;
+}
+
+export interface GiteaActionRunner {
+    id?: number;
+    name?: string;
+    status?: string;
+    busy?: boolean;
+    disabled?: boolean;
+    ephemeral?: boolean;
+    labels?: GiteaActionRunnerLabel[];
+}
+
+export interface GiteaActionRunnersResponse {
+    total_count?: number;
+    runners?: GiteaActionRunner[];
+}
+
+export interface GiteaActionArtifact {
+    id?: number;
+    name?: string;
+    size_in_bytes?: number;
+    expired?: boolean;
+    expires_at?: string;
+    archive_download_url?: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface GiteaActionArtifactsResponse {
+    total_count?: number;
+    artifacts?: GiteaActionArtifact[];
+}
+
 /** A branch deletion tracked by the extension for later restoration. */
 export interface DeletedBranch {
     name: string;

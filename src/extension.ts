@@ -24,6 +24,7 @@ import { showImportIssuesDialog } from './features/importIssues';
 import { syncProfileToGitea, restoreProfileFromGitea } from './features/profileSync';
 import { DeletedBranch, GiteaRepository } from './types/gitea';
 import { registerGiteaOAuthProvider } from './features/oauth';
+import { createActionsFeature } from './features/actions';
 
 interface RepositoryItem {
     repository?: GiteaRepository;
@@ -76,10 +77,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         const deletedBranchesProvider = new DeletedBranchesProvider(branchManager, repositoryProvider);
 
+        const actionsFeature = createActionsFeature(context, auth);
+
         const throttledRefresh = throttle(() => {
             repositoryProvider.refresh();
             issueProvider.refresh();
             pullRequestProvider.refresh();
+            actionsFeature.refresh();
         }, 1000);
 
         let hasPromptedNoWorkspaceRepos = false;

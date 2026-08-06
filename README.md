@@ -57,6 +57,13 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 - **Notification Alerts**: Quick actions to focus Issues/PRs views in VS Code, open in browser, or copy commit SHAs directly from toasts
 - **Performance-aware**: Caches read-only API responses, throttles refresh bursts, and defers notification polling to reduce startup cost and API load
 
+#### Gitea Actions (CI/CD)
+
+A separate **Actions** activity bar container with two views:
+
+- **Workflow Runs**: repositories → recent workflow runs → jobs → steps, with per-status icons. Right-click a run to open it in the browser, rerun it (or only the failed jobs), view its aggregated logs, or download its artifacts. Right-click a job to view that job's logs. Logs open in an editor tab (`.log`), so you can search and copy them like any file.
+- **Settings**: per repository, browse **Secrets**, **Variables**, and **Runners**; add/update/delete secrets and variables directly from the tree. (Gitea does not expose environments via its API.)
+
 #### Additional Features
 
 - **VS Code Profile Sync**: Back up and restore your VS Code settings, keybindings, and extension list using any Gitea repository
@@ -74,7 +81,7 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
    - **Personal Access Token**: provide your instance URL, a token, and a profile name.
    - **OAuth (browser)**: sign in through your Gitea server (see [OAuth sign-in](#oauth-sign-in)).
    - **Git Credential (git)**: store the token with `git credential` (see [Git Credential sign-in](#git-credential-sign-in)).
-3. Open the OpenGitea Activity Bar icon to explore Repositories, Issues, and Pull Requests.
+3. Open the OpenGitea Activity Bar icons to explore Repositories, Issues, and Pull Requests (main container) and Gitea Actions CI/CD (Actions container).
 
 ### OAuth Sign-in
 
@@ -88,6 +95,20 @@ To enable it:
 4. Run `OpenGitea: Sign in with OAuth (Browser)` (or choose OAuth in `OpenGitea: Configure Instance` / `OpenGitea: Add Profile`), enter your instance URL, and complete the login in the browser that opens.
 
 OAuth profiles show up like any other profile in `OpenGitea: Switch Profile`; their tokens are refreshed automatically when supported by the server, and signing out (removing the profile) also revokes the stored session.
+
+### Git Credential Sign-in
+
+Instead of storing the token in VS Code settings, the token can be stored in the platform credential store via `git credential` (Windows Credential Manager / GCM, `git-credential-store`, libsecret, ...). This is the same credential `git push` and `git clone` use, so you configure the token once.
+
+To enable it:
+
+1. Run `OpenGitea: Sign in with Git Credential` (or choose *Git Credential (git)* in `OpenGitea: Configure Instance` / `OpenGitea: Add Profile`).
+2. Enter your Gitea instance URL. If a credential is already stored for that host, you can reuse it.
+3. Otherwise enter your Gitea **username** and **access token**; they are stored via `git credential approve`.
+
+The profile only records the instance URL and auth type — the token stays in the credential store. Removing such a profile asks whether you also want to erase the stored git credential.
+
+**Troubleshooting custom helpers**: the extension calls `git credential fill` with `protocol` + `host`. Per-URL helpers in your `.gitconfig` (e.g. `[credential "https://git.example.com"] helper = !tea login helper`) are matched and invoked normally. If the extension still prompts for a token, verify the helper itself works — for `tea`, run `tea login helper get` (feed `protocol=https\nhost=git.example.com\n\n` on stdin). An error like `user not set` means the tea login has no readable token (e.g. an OAuth login whose token in the encrypted credential store can't be read); fix it by re-logging in with `tea login delete git.example.com` and `tea login add` (or `tea login add --oauth`), then confirm with `tea repo list`.
 
 ### Views Overview
 
@@ -107,6 +128,15 @@ OAuth profiles show up like any other profile in `OpenGitea: Switch Profile`; th
 - OpenGitea: Configure Instance (`opengitea.configure`): set instance URL and token, sign in with OAuth, or use git credential.
 - OpenGitea: Sign in with OAuth (`opengitea.signInWithOAuth`): browser-based OAuth2 sign-in.
 - OpenGitea: Sign in with Git Credential (`opengitea.signInWithGitCredential`): store the token via `git credential`.
+- Refresh Actions (`opengitea.actions.refresh`)
+- Open Run in Browser (`opengitea.actions.openRunInBrowser`)
+- Rerun Workflow Run (`opengitea.actions.rerunRun`)
+- Rerun Failed Jobs (`opengitea.actions.rerunFailedJobs`)
+- View Job Logs (`opengitea.actions.viewJobLogs`)
+- View Run Logs (`opengitea.actions.viewRunLogs`): aggregated logs for all jobs in a run
+- Download Artifacts (`opengitea.actions.downloadArtifacts`)
+- Add/Delete Secret (`opengitea.actions.addSecret` / `opengitea.actions.deleteSecret`)
+- Add/Update/Delete Variable (`opengitea.actions.addVariable` / `opengitea.actions.updateVariable` / `opengitea.actions.deleteVariable`)
 - OpenGitea: Search Repositories (`opengitea.searchRepositories`)
 - OpenGitea: Search Issues (`opengitea.searchIssues`)
 - OpenGitea: Search Pull Requests (`opengitea.searchPullRequests`)
