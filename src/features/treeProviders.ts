@@ -186,6 +186,23 @@ export function filterRepositoriesByWorkspace(allRepos: GiteaRepository[]): Gite
     return loadedRepos;
 }
 
+/**
+ * Resolve which repositories to display. Returns repositories matching the
+ * current workspace; if none match and "show all" isn't enabled, returns an
+ * empty list and asynchronously prompts the user. The prompt is deliberately
+ * NOT awaited so an unanswered (non-modal) notification cannot leave the tree
+ * in its loading state forever.
+ */
+function resolveWorkspaceRepos(allRepos: GiteaRepository[], refresh: () => void): GiteaRepository[] {
+    const workspaceRepos = filterRepositoriesByWorkspace(allRepos);
+    if (workspaceRepos.length === 0 && !shouldShowAllReposWhenNoWorkspace()) {
+        void promptForWorkspaceRepos(allRepos).then(action => {
+            if (action === 'showAll') refresh();
+        });
+    }
+    return workspaceRepos;
+}
+
 // ---------------------------------------------------------------------------
 // Tree item classes
 // ---------------------------------------------------------------------------
@@ -394,16 +411,7 @@ export class RepositoryProvider implements vscode.TreeDataProvider<vscode.TreeIt
                 }
                 const repos = await this.auth.makeRequest<GiteaRepository[]>('/api/v1/user/repos');
                 const allRepos = repos || [];
-                let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
-
-                if (workspaceRepos.length === 0) {
-                    if (shouldShowAllReposWhenNoWorkspace()) {
-                        workspaceRepos = allRepos;
-                    } else {
-                        const action = await promptForWorkspaceRepos(allRepos);
-                        if (action === 'showAll') workspaceRepos = allRepos;
-                    }
-                }
+                const workspaceRepos = resolveWorkspaceRepos(allRepos, () => this.refresh());
 
                 this.repositories = workspaceRepos;
                 this.mode = 'all';
@@ -475,16 +483,7 @@ export class IssueProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
                 try {
                     const repos = await this.auth.makeRequest<GiteaRepository[]>('/api/v1/user/repos');
                     const allRepos = repos || [];
-                    let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
-
-                    if (workspaceRepos.length === 0) {
-                        if (shouldShowAllReposWhenNoWorkspace()) {
-                            workspaceRepos = allRepos;
-                        } else {
-                            const action = await promptForWorkspaceRepos(allRepos);
-                            if (action === 'showAll') workspaceRepos = allRepos;
-                        }
-                    }
+                    const workspaceRepos = resolveWorkspaceRepos(allRepos, () => this.refresh());
 
                     const repoResults = await Promise.all(workspaceRepos.map(async repo => {
                         try {
@@ -650,16 +649,7 @@ export class PullRequestProvider implements vscode.TreeDataProvider<vscode.TreeI
                 try {
                     const repos = await this.auth.makeRequest<GiteaRepository[]>('/api/v1/user/repos');
                     const allRepos = repos || [];
-                    let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
-
-                    if (workspaceRepos.length === 0) {
-                        if (shouldShowAllReposWhenNoWorkspace()) {
-                            workspaceRepos = allRepos;
-                        } else {
-                            const action = await promptForWorkspaceRepos(allRepos);
-                            if (action === 'showAll') workspaceRepos = allRepos;
-                        }
-                    }
+                    const workspaceRepos = resolveWorkspaceRepos(allRepos, () => this.refresh());
 
                     const repoResults = await Promise.all(workspaceRepos.map(async repo => {
                         try {

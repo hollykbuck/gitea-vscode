@@ -87,12 +87,18 @@ function runGitCredential(op: string, input: string, timeoutMs: number): Promise
     });
 }
 
+export interface GitCredentialLookupResult {
+    credential: GitCredential | null;
+    /** The git/helper error message when the lookup failed, otherwise null. */
+    error: string | null;
+}
+
 /**
- * Retrieve a stored credential for the given Gitea instance. Returns `null`
- * when nothing is stored (or git/credential helper is unavailable). Never
- * prompts the user or opens UI.
+ * Retrieve a stored credential for the given Gitea instance. Never prompts
+ * the user or opens UI. Returns the credential plus the underlying git/helper
+ * error (if any) so callers can explain why no credential was found.
  */
-export async function gitCredentialFill(instanceUrl: string): Promise<GitCredential | null> {
+export async function gitCredentialLookup(instanceUrl: string): Promise<GitCredentialLookupResult> {
     const entry = entryFor(instanceUrl);
     try {
         const stdout = await runGitCredential(
@@ -101,11 +107,18 @@ export async function gitCredentialFill(instanceUrl: string): Promise<GitCredent
             15000,
         );
         const parsed = parseCredentialOutput(stdout);
-        if (!parsed.password) return null;
-        return { username: parsed.username ?? '', password: parsed.password };
-    } catch {
-        return null;
+        if (!parsed.password) {
+            return { credential: null, error: 'git credential returned no password' };
+        }
+        return { credential: { username: parsed.username ?? '', password: parsed.password }, error: null };
+    } catch (err) {
+        return { credential: null, error: err instanceof Error ? err.message : String(err) };
     }
+}
+
+/** Retrieve a stored credential for the given Gitea instance, or null. */
+export async function gitCredentialFill(instanceUrl: string): Promise<GitCredential | null> {
+    return (await gitCredentialLookup(instanceUrl)).credential;
 }
 
 /** Store a credential for the given Gitea instance (the token is the password). */

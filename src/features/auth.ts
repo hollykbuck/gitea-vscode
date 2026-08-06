@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { GiteaClient, RequestOptions } from '../api/client';
 import { GiteaProfile, GiteaUser } from '../types/gitea';
 import { OAUTH_PROVIDER_ID, oauthServerScope, signOutGiteaSession } from './oauth';
-import { gitCredentialApprove, gitCredentialFill, gitCredentialReject } from './gitCredential';
+import { gitCredentialApprove, gitCredentialLookup, gitCredentialReject } from './gitCredential';
 
 /**
  * Manages Gitea authentication: profiles stored in VS Code settings, the
@@ -187,7 +187,8 @@ export class GiteaAuth {
         const instanceUrl = await this.promptInstanceUrl(this.instanceUrl);
         if (!instanceUrl) return false;
 
-        const existing = await gitCredentialFill(instanceUrl);
+        const lookup = await gitCredentialLookup(instanceUrl);
+        const existing = lookup.credential;
         let username = existing?.username ?? '';
         let token = existing?.password ?? '';
 
@@ -200,10 +201,11 @@ export class GiteaAuth {
         }
 
         if (!token) {
+            const reason = lookup.error ? ` (git error: ${lookup.error})` : '';
             vscode.window.showInformationMessage(
-                `No credential was returned by "git credential" for ${new URL(instanceUrl).host}. ` +
-                `If you use a custom helper (such as tea), make sure it works with "git credential fill". ` +
-                'You can enter a token below to store it.',
+                `No credential was returned by "git credential" for ${new URL(instanceUrl).host}${reason}. ` +
+                `If you use a custom helper (such as tea), make sure it works with "git credential fill" ` +
+                'and is on the PATH visible to VS Code. You can enter a token below to store it.',
             );
 
             username = (await vscode.window.showInputBox({
@@ -248,8 +250,8 @@ export class GiteaAuth {
      * store. Returns `null` when nothing is stored (without prompting).
      */
     private async resolveGitCredentialToken(instanceUrl: string): Promise<string | null> {
-        const credential = await gitCredentialFill(instanceUrl);
-        return credential?.password ?? null;
+        const lookup = await gitCredentialLookup(instanceUrl);
+        return lookup.credential?.password ?? null;
     }
 
     /**
