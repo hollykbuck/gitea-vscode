@@ -68,6 +68,6 @@ jobs:
                   path: .
 
             - name: Create GitHub Release
-              run: gh release create "${{ github.ref_name }}" "${{ github.workspace }}"/*.vsix --generate-notes
+              run: gh release create "${{ github.ref_name }}" "${{ github.workspace }}"/*.vsix --generate-notes --repo "${{ github.repository }}"
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
