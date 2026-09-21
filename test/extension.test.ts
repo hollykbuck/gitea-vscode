@@ -25,7 +25,6 @@ suite('Extension Tests', () => {
             // Issue Management
             'opengitea.searchIssues',
             'opengitea.createIssue',
-            'opengitea.importIssues',
             'opengitea.viewIssueDetails',
             'opengitea.openIssueInBrowser',
             // Pull Request Management

@@ -11,12 +11,6 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 
 #### Issue Management
 
-- **Import Issues from XLSX**: Bulk import issues from Excel files with automatic label mapping
-  - Support for XLSX format with flexible column naming
-  - Automatic label name to ID mapping (labels must exist in repository)
-  - Interactive preview and configuration dialog
-  - Detailed error reporting with failure summary
-  - See [Import Issues Documentation](docs/IMPORT_ISSUES_FEATURE.md) for details
 - **Issues View**: Grouped by Repository → State (Open/Closed) → Items, with quick open-in-browser
 - **WebView Creation**: Rich forms for creating issues with repository selection, labels, and assignees
 - **WebView Details**: Rich detail panels with inline commenting and actions
@@ -150,7 +144,6 @@ The profile only records the instance URL and auth type — the token stays in t
 - OpenGitea: Check Notification Status (`opengitea.notificationStatus`)
 - OpenGitea: Create Repository (`opengitea.createRepository`)
 - OpenGitea: Create Issue (`opengitea.createIssue`)
-- OpenGitea: Import Issues from XLSX (`opengitea.importIssues`): bulk import issues from Excel file.
 - OpenGitea: Create Pull Request (`opengitea.createPullRequest`)
 - Open Repository in VS Code (`opengitea.openRepository`)
 - Open in Browser (`opengitea.openInBrowser`)

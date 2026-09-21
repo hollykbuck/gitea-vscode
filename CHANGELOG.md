@@ -9,6 +9,10 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 - Replaced the marketplace and activity bar icons with original OpenGitea artwork and clarified the unofficial/community status in the description and README to address marketplace impersonation concerns.
 
+### Removed
+
+- **Import Issues from XLSX** (`opengitea.importIssues`): the bulk Excel import feature, its `xlsx` dependency, and `docs/IMPORT_ISSUES_FEATURE.md` have been removed.
+
 ### Planned
 
 - Advanced PR filtering and sorting.

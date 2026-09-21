@@ -20,7 +20,6 @@ import { BranchManager } from './features/branches';
 import { DeletedBranchesProvider } from './features/deletedBranchesProvider';
 import { StashManager } from './features/stash';
 import { throttle } from './features/performanceOptimizer';
-import { showImportIssuesDialog } from './features/importIssues';
 import { syncProfileToGitea, restoreProfileFromGitea } from './features/profileSync';
 import { DeletedBranch, GiteaRepository } from './types/gitea';
 import { registerGiteaOAuthProvider } from './features/oauth';
@@ -440,47 +439,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 setTimeout(() => issueProvider.refresh(), 1000);
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to create issue: ${errorMessage(error)}`);
-            }
-        });
-
-        // Import issues from XLSX command
-        const importIssuesCommand = vscode.commands.registerCommand('opengitea.importIssues', async () => {
-            console.log('[DEBUG] Import Issues command triggered');
-
-            if (!auth.isConfigured()) {
-                vscode.window.showWarningMessage('Gitea is not configured. Please configure first.');
-                return;
-            }
-
-            try {
-                console.log('[DEBUG] Fetching repositories...');
-                const repos = await auth.makeRequest<GiteaRepository[]>('/api/v1/user/repos');
-                const allRepos = repos || [];
-                let workspaceRepos = filterRepositoriesByWorkspace(allRepos);
-
-                console.log(`[DEBUG] Found ${workspaceRepos.length} workspace repositories`);
-
-                if (workspaceRepos.length === 0) {
-                    if (getShowAllReposWhenNoWorkspace()) {
-                        workspaceRepos = allRepos;
-                    } else {
-                        const action = await promptNoWorkspaceRepos(allRepos);
-                        if (action === 'showAll') workspaceRepos = allRepos;
-                    }
-                }
-
-                if (workspaceRepos.length === 0) {
-                    vscode.window.showWarningMessage('No repositories available for this workspace.');
-                    return;
-                }
-
-                console.log('[DEBUG] Showing import dialog...');
-                await showImportIssuesDialog(auth, workspaceRepos);
-
-                setTimeout(() => issueProvider.refresh(), 1000);
-            } catch (error) {
-                console.error('[ERROR] Import issues command failed:', error);
-                vscode.window.showErrorMessage(`Failed to import issues: ${errorMessage(error)}`);
             }
         });
 
@@ -1011,7 +969,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             notificationStatusCommand,
             createRepositoryCommand,
             createIssueCommand,
-            importIssuesCommand,
             createPullRequestCommand,
             switchBranchCommand,
             createBranchFromIssueCommand,

@@ -142,11 +142,6 @@
                 "icon": "$(new-file)"
             },
             {
-                "command": "opengitea.importIssues",
-                "title": "OpenGitea: Import Issues from XLSX",
-                "icon": "$(archive)"
-            },
-            {
                 "command": "opengitea.createPullRequest",
                 "title": "OpenGitea: Create Pull Request",
                 "icon": "$(git-pull-request-create)"
@@ -363,11 +358,6 @@
                     "command": "opengitea.createIssue",
                     "when": "view == opengitea.issues",
                     "group": "navigation@2"
-                },
-                {
-                    "command": "opengitea.importIssues",
-                    "when": "view == opengitea.issues",
-                    "group": "navigation@3"
                 },
                 {
                     "command": "opengitea.createPullRequest",
@@ -659,7 +649,6 @@
         "typescript": "~5.9"
     },
     "dependencies": {
-        "marked": "^12.0.0",
-        "xlsx": "^0.18.5"
+        "marked": "^12.0.0"
     }
 }
