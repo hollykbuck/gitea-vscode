@@ -1,4 +1,6 @@
-## OpenGitea — Gitea Extension for VS Code
+## OpenGitea — Community Gitea Client for VS Code
+
+> **Disclaimer:** This is an unofficial, community-maintained extension. It is not affiliated with, endorsed, or sponsored by Gitea. Gitea is a trademark of its respective owners.
 
 [![CI Build, Test & Package](https://github.com/hollykbuck/gitea-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/hollykbuck/gitea-vscode/actions/workflows/ci.yml)
 

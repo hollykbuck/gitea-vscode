@@ -5,6 +5,10 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ## [Unreleased]
 
+### Fixed
+
+- Replaced the marketplace and activity bar icons with original OpenGitea artwork and clarified the unofficial/community status in the description and README to address marketplace impersonation concerns.
+
 ### Planned
 
 - Advanced PR filtering and sorting.

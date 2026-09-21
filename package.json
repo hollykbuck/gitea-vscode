@@ -1,8 +1,8 @@
 {
     "name": "opengitea",
     "displayName": "OpenGitea",
-    "description": "Unofficial Gitea Extension for VS Code",
-    "version": "0.2.1",
+    "description": "Community Gitea client for VS Code (unofficial, not affiliated with Gitea)",
+    "version": "0.2.2",
     "publisher": "hollykbuck",
     "license": "GPL-3.0-only",
     "repository": {
@@ -18,7 +18,7 @@
         "onStartupFinished"
     ],
     "main": "./dist/extension.js",
-    "icon": "media/gitea-logo-marketplace.png",
+    "icon": "media/opengitea-logo.png",
     "contributes": {
         "commands": [
             {
@@ -287,12 +287,12 @@
                 {
                     "id": "opengitea-explorer",
                     "title": "OpenGitea",
-                    "icon": "media/gitea-logo.svg"
+                    "icon": "media/opengitea-activity.svg"
                 },
                 {
                     "id": "opengitea-actions",
                     "title": "OpenGitea Actions",
-                    "icon": "media/gitea-action.svg"
+                    "icon": "media/opengitea-actions.svg"
                 }
             ]
         },
