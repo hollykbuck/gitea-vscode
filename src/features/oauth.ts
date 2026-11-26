@@ -3,11 +3,11 @@ import * as http from 'http';
 import * as vscode from 'vscode';
 
 /** Provider id registered via {@link registerGiteaOAuthProvider}. */
-export const OAUTH_PROVIDER_ID = 'opengitea';
+export const OAUTH_PROVIDER_ID = 'limeclient';
 
-const SERVER_SCOPE_PREFIX = 'opengitea-server';
-const SECRET_KEY_PREFIX = 'opengitea.oauth.token.';
-const SERVERS_MANIFEST_KEY = 'opengitea.oauth.servers';
+const SERVER_SCOPE_PREFIX = 'limeclient-server';
+const SECRET_KEY_PREFIX = 'limeclient.oauth.token.';
+const SERVERS_MANIFEST_KEY = 'limeclient.oauth.servers';
 const REDIRECT_PATH = '/callback';
 const CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_OAUTH_SCOPES =
@@ -149,7 +149,7 @@ function waitForCallback(port: number, expectedState: string): Promise<string> {
             clearTimeout(timeout);
             if (err.code === 'EADDRINUSE') {
                 reject(new Error(
-                    `Port ${port} is already in use. Change "opengitea.oauthRedirectPort" and update the ` +
+                    `Port ${port} is already in use. Change "limeclient.oauthRedirectPort" and update the ` +
                     `redirect URI registered in your Gitea OAuth2 application to match.`,
                 ));
             } else {
@@ -163,7 +163,7 @@ function waitForCallback(port: number, expectedState: string): Promise<string> {
 
 /** Exchange an authorization code (or refresh token) for a Gitea access token. */
 async function requestToken(instanceUrl: string, params: Record<string, string>): Promise<TokenResponse> {
-    const clientSecret = vscode.workspace.getConfiguration('opengitea').get<string>('oauthClientSecret', '');
+    const clientSecret = vscode.workspace.getConfiguration('limeclient').get<string>('oauthClientSecret', '');
     if (clientSecret) {
         params.client_secret = clientSecret;
     }
@@ -211,7 +211,7 @@ async function fetchLogin(instanceUrl: string, accessToken: string): Promise<str
 let provider: GiteaOAuthAuthenticationProvider | null = null;
 
 /**
- * Register the OpenGitea OAuth2 {@link vscode.AuthenticationProvider}. Should be
+ * Register the LimeClient OAuth2 {@link vscode.AuthenticationProvider}. Should be
  * called once during activation. The returned disposable unregisters it.
  */
 export function registerGiteaOAuthProvider(context: vscode.ExtensionContext): vscode.Disposable {
@@ -223,7 +223,7 @@ export function registerGiteaOAuthProvider(context: vscode.ExtensionContext): vs
     }
     return vscode.authentication.registerAuthenticationProvider(
         OAUTH_PROVIDER_ID,
-        'OpenGitea',
+        'LimeClient',
         provider,
         { supportsMultipleAccounts: true },
     );
@@ -282,12 +282,12 @@ class GiteaOAuthAuthenticationProvider implements vscode.AuthenticationProvider 
             throw new Error(`Missing server scope. Expected a scope starting with "${SERVER_SCOPE_PREFIX}:".`);
         }
 
-        const config = vscode.workspace.getConfiguration('opengitea');
+        const config = vscode.workspace.getConfiguration('limeclient');
         const clientId = config.get<string>('oauthClientId', '');
         if (!clientId) {
             throw new Error(
                 'OAuth is not configured. Create an OAuth2 application on your Gitea server ' +
-                '(Settings → Applications → OAuth2 Applications) and set "opengitea.oauthClientId" ' +
+                '(Settings → Applications → OAuth2 Applications) and set "limeclient.oauthClientId" ' +
                 `to its Client ID. The redirect URI must be http://127.0.0.1:${config.get<number>('oauthRedirectPort', 53123)}${REDIRECT_PATH}.`,
             );
         }
@@ -413,6 +413,6 @@ class GiteaOAuthAuthenticationProvider implements vscode.AuthenticationProvider 
     }
 
     private clientId(): string {
-        return vscode.workspace.getConfiguration('opengitea').get<string>('oauthClientId', '');
+        return vscode.workspace.getConfiguration('limeclient').get<string>('oauthClientId', '');
     }
 }

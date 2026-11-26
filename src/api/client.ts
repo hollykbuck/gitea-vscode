@@ -60,7 +60,7 @@ export class GiteaClient {
      */
     async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
         if (!this.isConfigured()) {
-            throw new Error('Gitea not configured. Please run "OpenGitea: Configure Instance"');
+            throw new Error('Gitea not configured. Please run "LimeClient: Configure Instance"');
         }
 
         const method = options.method ?? 'GET';

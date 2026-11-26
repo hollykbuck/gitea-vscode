@@ -30,7 +30,7 @@ export class GiteaAuth {
      */
     async initialize(): Promise<boolean> {
         try {
-            const config = vscode.workspace.getConfiguration('opengitea');
+            const config = vscode.workspace.getConfiguration('limeclient');
 
             const savedProfiles = (config.get<Record<string, GiteaProfile>>('profiles') || {});
             this.profiles = savedProfiles;
@@ -152,11 +152,11 @@ export class GiteaAuth {
         const instanceUrl = await this.promptInstanceUrl(this.instanceUrl);
         if (!instanceUrl) return false;
 
-        const clientId = vscode.workspace.getConfiguration('opengitea').get<string>('oauthClientId', '');
+        const clientId = vscode.workspace.getConfiguration('limeclient').get<string>('oauthClientId', '');
         if (!clientId) {
             vscode.window.showErrorMessage(
-                'OAuth requires "opengitea.oauthClientId". Create an OAuth2 application on your Gitea server ' +
-                '(Settings → Applications → OAuth2 Applications), set its Client ID in the OpenGitea settings, ' +
+                'OAuth requires "limeclient.oauthClientId". Create an OAuth2 application on your Gitea server ' +
+                '(Settings → Applications → OAuth2 Applications), set its Client ID in the LimeClient settings, ' +
                 'and register the redirect URI http://127.0.0.1:53123/callback.',
             );
             return false;
@@ -387,7 +387,7 @@ export class GiteaAuth {
      */
     async saveProfiles(): Promise<void> {
         try {
-            const config = vscode.workspace.getConfiguration('opengitea');
+            const config = vscode.workspace.getConfiguration('limeclient');
             await config.update('profiles', this.profiles, vscode.ConfigurationTarget.Global);
             await config.update('activeProfile', this.activeProfile, vscode.ConfigurationTarget.Global);
         } catch (error) {
@@ -401,7 +401,7 @@ export class GiteaAuth {
      */
     async switchProfile(): Promise<boolean> {
         try {
-            const config = vscode.workspace.getConfiguration('opengitea');
+            const config = vscode.workspace.getConfiguration('limeclient');
             const savedProfiles = (config.get<Record<string, GiteaProfile>>('profiles') || {});
             this.profiles = savedProfiles;
 
@@ -456,7 +456,7 @@ export class GiteaAuth {
      * List all available profiles.
      */
     listProfiles(): { name: string; url: string; isActive: boolean }[] {
-        const config = vscode.workspace.getConfiguration('opengitea');
+        const config = vscode.workspace.getConfiguration('limeclient');
         const savedProfiles = (config.get<Record<string, GiteaProfile>>('profiles') || {});
         this.profiles = savedProfiles;
 
@@ -472,7 +472,7 @@ export class GiteaAuth {
      */
     async removeProfile(profileName?: string): Promise<boolean> {
         try {
-            const config = vscode.workspace.getConfiguration('opengitea');
+            const config = vscode.workspace.getConfiguration('limeclient');
             const savedProfiles = (config.get<Record<string, GiteaProfile>>('profiles') || {});
             this.profiles = savedProfiles;
 

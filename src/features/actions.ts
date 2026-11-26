@@ -274,7 +274,7 @@ export class ActionsSettingsProvider implements vscode.TreeDataProvider<vscode.T
 // Commands
 // ---------------------------------------------------------------------------
 
-const LOG_SCHEME = 'opengitea-logs';
+const LOG_SCHEME = 'limeclient-logs';
 const logDocs = new Map<string, string>();
 const onDidChangeLogEmitter = new vscode.EventEmitter<vscode.Uri>();
 
@@ -555,11 +555,11 @@ export function createActionsFeature(context: vscode.ExtensionContext, auth: Git
     const runsProvider = new ActionsRunsProvider(auth);
     const settingsProvider = new ActionsSettingsProvider(auth);
 
-    const runsTreeView = vscode.window.createTreeView('opengitea.actions', {
+    const runsTreeView = vscode.window.createTreeView('limeclient.actions', {
         treeDataProvider: runsProvider,
         showCollapseAll: true,
     });
-    const settingsTreeView = vscode.window.createTreeView('opengitea.actionsSettings', {
+    const settingsTreeView = vscode.window.createTreeView('limeclient.actionsSettings', {
         treeDataProvider: settingsProvider,
         showCollapseAll: true,
     });
@@ -581,19 +581,19 @@ export function createActionsFeature(context: vscode.ExtensionContext, auth: Git
         };
 
     const commands = [
-        vscode.commands.registerCommand('opengitea.actions.refresh', refresh),
-        vscode.commands.registerCommand('opengitea.actions.openRunInBrowser', wrap(item => openRunInBrowser(item), 'Failed to open run')),
-        vscode.commands.registerCommand('opengitea.actions.rerunRun', wrap(item => rerunRun(auth, runsProvider, item), 'Failed to rerun')),
-        vscode.commands.registerCommand('opengitea.actions.rerunFailedJobs', wrap(item => rerunFailedJobs(auth, runsProvider, item), 'Failed to rerun failed jobs')),
-        vscode.commands.registerCommand('opengitea.actions.viewJobLogs', wrap(item => viewJobLogs(auth, item), 'Failed to load job logs')),
-        vscode.commands.registerCommand('opengitea.actions.viewRunLogs', wrap(item => viewRunLogs(auth, item), 'Failed to load run logs')),
-        vscode.commands.registerCommand('opengitea.actions.downloadArtifacts', wrap(item => downloadArtifacts(auth, item), 'Failed to download artifacts')),
-        vscode.commands.registerCommand('opengitea.actions.addSecret', wrap(item => addSecret(auth, settingsProvider, item), 'Failed to create secret')),
-        vscode.commands.registerCommand('opengitea.actions.deleteSecret', wrap(item => deleteSecret(auth, settingsProvider, item), 'Failed to delete secret')),
-        vscode.commands.registerCommand('opengitea.actions.updateSecret', wrap(item => updateSecret(auth, settingsProvider, item), 'Failed to update secret')),
-        vscode.commands.registerCommand('opengitea.actions.addVariable', wrap(item => addVariable(auth, settingsProvider, item), 'Failed to create variable')),
-        vscode.commands.registerCommand('opengitea.actions.updateVariable', wrap(item => updateVariable(auth, settingsProvider, item), 'Failed to update variable')),
-        vscode.commands.registerCommand('opengitea.actions.deleteVariable', wrap(item => deleteVariable(auth, settingsProvider, item), 'Failed to delete variable')),
+        vscode.commands.registerCommand('limeclient.actions.refresh', refresh),
+        vscode.commands.registerCommand('limeclient.actions.openRunInBrowser', wrap(item => openRunInBrowser(item), 'Failed to open run')),
+        vscode.commands.registerCommand('limeclient.actions.rerunRun', wrap(item => rerunRun(auth, runsProvider, item), 'Failed to rerun')),
+        vscode.commands.registerCommand('limeclient.actions.rerunFailedJobs', wrap(item => rerunFailedJobs(auth, runsProvider, item), 'Failed to rerun failed jobs')),
+        vscode.commands.registerCommand('limeclient.actions.viewJobLogs', wrap(item => viewJobLogs(auth, item), 'Failed to load job logs')),
+        vscode.commands.registerCommand('limeclient.actions.viewRunLogs', wrap(item => viewRunLogs(auth, item), 'Failed to load run logs')),
+        vscode.commands.registerCommand('limeclient.actions.downloadArtifacts', wrap(item => downloadArtifacts(auth, item), 'Failed to download artifacts')),
+        vscode.commands.registerCommand('limeclient.actions.addSecret', wrap(item => addSecret(auth, settingsProvider, item), 'Failed to create secret')),
+        vscode.commands.registerCommand('limeclient.actions.deleteSecret', wrap(item => deleteSecret(auth, settingsProvider, item), 'Failed to delete secret')),
+        vscode.commands.registerCommand('limeclient.actions.updateSecret', wrap(item => updateSecret(auth, settingsProvider, item), 'Failed to update secret')),
+        vscode.commands.registerCommand('limeclient.actions.addVariable', wrap(item => addVariable(auth, settingsProvider, item), 'Failed to create variable')),
+        vscode.commands.registerCommand('limeclient.actions.updateVariable', wrap(item => updateVariable(auth, settingsProvider, item), 'Failed to update variable')),
+        vscode.commands.registerCommand('limeclient.actions.deleteVariable', wrap(item => deleteVariable(auth, settingsProvider, item), 'Failed to delete variable')),
     ];
 
     context.subscriptions.push(runsTreeView, settingsTreeView, logContentProviderDisposable, ...commands);

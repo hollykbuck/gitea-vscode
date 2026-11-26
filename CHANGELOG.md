@@ -5,13 +5,19 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ## [Unreleased]
 
+### Changed
+
+- The extension now activates on demand (`onView`, contributed commands, and `onAuthenticationRequest`) instead of at VS Code startup, so it no longer runs `onStartupFinished`. Background notification polling therefore begins after the first activation rather than at startup.
+- Removed the leftover `limeclient.helloWorld` scaffold command.
+- Renamed the extension from OpenGitea to **LimeClient** (extension ID `hollykbuck.limeclient`) to avoid confusion with the Gitea project and its trademarks. Command IDs, view IDs, settings keys, and OAuth storage keys now use the `limeclient` prefix; existing OpenGitea settings and stored tokens are not migrated, so reconfigure the instance and sign in again.
+
 ### Fixed
 
-- Replaced the marketplace and activity bar icons with original OpenGitea artwork and clarified the unofficial/community status in the description and README to address marketplace impersonation concerns.
+- Replaced the marketplace and activity bar icons with original LimeClient artwork and clarified the unofficial/community status in the description and README to address marketplace impersonation concerns.
 
 ### Removed
 
-- **Import Issues from XLSX** (`opengitea.importIssues`): the bulk Excel import feature, its `xlsx` dependency, and `docs/IMPORT_ISSUES_FEATURE.md` have been removed.
+- **Import Issues from XLSX** (`limeclient.importIssues`): the bulk Excel import feature, its `xlsx` dependency, and `docs/IMPORT_ISSUES_FEATURE.md` have been removed.
 
 ### Planned
 

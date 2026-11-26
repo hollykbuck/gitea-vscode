@@ -31,7 +31,7 @@ export class NotificationManager {
 
             this.isMonitoring = true;
 
-            const config = vscode.workspace.getConfiguration('opengitea');
+            const config = vscode.workspace.getConfiguration('limeclient');
             this.pollInterval = config.get<number>('notificationPollInterval') || 60000;
 
             await this.checkRepositoriesActivity();
@@ -224,14 +224,14 @@ export class NotificationManager {
                 if (selection === 'View in VS Code') {
                     void (async () => {
                         try {
-                            await vscode.commands.executeCommand('workbench.view.extension.opengitea-explorer');
-                            await vscode.commands.executeCommand('opengitea.issues.focus');
+                            await vscode.commands.executeCommand('workbench.view.extension.limeclient-explorer');
+                            await vscode.commands.executeCommand('limeclient.issues.focus');
                         } catch (err) {
                             console.error('Failed to focus issues view:', err);
                         }
                     })();
                 } else if (selection === 'Open in Browser') {
-                    vscode.commands.executeCommand('opengitea.openIssueInBrowser', issueItem)
+                    vscode.commands.executeCommand('limeclient.openIssueInBrowser', issueItem)
                         .then(undefined, err => console.error('Failed to open issue in browser:', err));
                 }
             });
@@ -267,14 +267,14 @@ export class NotificationManager {
                 if (selection === 'View in VS Code') {
                     void (async () => {
                         try {
-                            await vscode.commands.executeCommand('workbench.view.extension.opengitea-explorer');
-                            await vscode.commands.executeCommand('opengitea.pullRequests.focus');
+                            await vscode.commands.executeCommand('workbench.view.extension.limeclient-explorer');
+                            await vscode.commands.executeCommand('limeclient.pullRequests.focus');
                         } catch (err) {
                             console.error('Failed to focus pull requests view:', err);
                         }
                     })();
                 } else if (selection === 'Open in Browser') {
-                    vscode.commands.executeCommand('opengitea.openPullRequestInBrowser', prItem)
+                    vscode.commands.executeCommand('limeclient.openPullRequestInBrowser', prItem)
                         .then(undefined, err => console.error('Failed to open PR in browser:', err));
                 }
             });

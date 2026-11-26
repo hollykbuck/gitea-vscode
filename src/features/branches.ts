@@ -32,7 +32,7 @@ export class BranchManager {
         this.auth = auth;
         this.context = context;
 
-        this.context.globalState.setKeysForSync(['opengitea.deletedBranches']);
+        this.context.globalState.setKeysForSync(['limeclient.deletedBranches']);
 
         this.loadDeletionHistory();
     }
@@ -42,7 +42,7 @@ export class BranchManager {
      */
     loadDeletionHistory(): void {
         try {
-            const stored = this.context.globalState.get<DeletionHistoryStore>('opengiteaDeletedBranches', {});
+            const stored = this.context.globalState.get<DeletionHistoryStore>('limeclientDeletedBranches', {});
             for (const [repoPath, deletions] of Object.entries(stored)) {
                 this.deletedBranches.set(repoPath, deletions);
             }
@@ -62,7 +62,7 @@ export class BranchManager {
                 for (const [repoPath, deletions] of this.deletedBranches.entries()) {
                     toStore[repoPath] = deletions;
                 }
-                await this.context.globalState.update('opengiteaDeletedBranches', toStore);
+                await this.context.globalState.update('limeclientDeletedBranches', toStore);
             } catch (error) {
                 console.error('Failed to save deletion history:', error);
             }
@@ -75,7 +75,7 @@ export class BranchManager {
      */
     cleanupOldDeletions(): void {
         try {
-            const config = vscode.workspace.getConfiguration('opengitea');
+            const config = vscode.workspace.getConfiguration('limeclient');
             const retentionDays = config.get<number>('branchDeletionRetentionDays', 90);
             const cutoffDate = new Date();
             cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
@@ -551,7 +551,7 @@ export class BranchManager {
             const content = JSON.stringify(exportData, null, 2);
 
             const uri = await vscode.window.showSaveDialog({
-                defaultUri: vscode.Uri.file(`opengitea-deleted-branches-${Date.now()}.json`),
+                defaultUri: vscode.Uri.file(`limeclient-deleted-branches-${Date.now()}.json`),
                 filters: {
                     'JSON Files': ['json'],
                     'All Files': ['*'],

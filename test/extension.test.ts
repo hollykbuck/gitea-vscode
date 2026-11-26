@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 
 suite('Extension Tests', () => {
     test('Extension is Present', () => {
-        const extension = vscode.extensions.getExtension('hollykbuck.opengitea');
+        const extension = vscode.extensions.getExtension('hollykbuck.limeclient');
         assert.ok(extension, 'Extension not found');
     });
 
@@ -12,45 +12,45 @@ suite('Extension Tests', () => {
 
         const expectedCommands = [
             // Configuration & Profile Management
-            'opengitea.configure',
-            'opengitea.addProfile',
-            'opengitea.switchProfile',
-            'opengitea.removeProfile',
+            'limeclient.configure',
+            'limeclient.addProfile',
+            'limeclient.switchProfile',
+            'limeclient.removeProfile',
             // Repository Management
-            'opengitea.searchRepositories',
-            'opengitea.refreshRepositories',
-            'opengitea.createRepository',
-            'opengitea.openRepository',
-            'opengitea.openInBrowser',
+            'limeclient.searchRepositories',
+            'limeclient.refreshRepositories',
+            'limeclient.createRepository',
+            'limeclient.openRepository',
+            'limeclient.openInBrowser',
             // Issue Management
-            'opengitea.searchIssues',
-            'opengitea.createIssue',
-            'opengitea.viewIssueDetails',
-            'opengitea.openIssueInBrowser',
+            'limeclient.searchIssues',
+            'limeclient.createIssue',
+            'limeclient.viewIssueDetails',
+            'limeclient.openIssueInBrowser',
             // Pull Request Management
-            'opengitea.searchPullRequests',
-            'opengitea.createPullRequest',
-            'opengitea.viewPullRequestDetails',
-            'opengitea.openPullRequestInBrowser',
+            'limeclient.searchPullRequests',
+            'limeclient.createPullRequest',
+            'limeclient.viewPullRequestDetails',
+            'limeclient.openPullRequestInBrowser',
             // Branch Management
-            'opengitea.switchBranch',
-            'opengitea.createBranchFromIssue',
-            'opengitea.createBranchFromPR',
-            'opengitea.deleteBranch',
+            'limeclient.switchBranch',
+            'limeclient.createBranchFromIssue',
+            'limeclient.createBranchFromPR',
+            'limeclient.deleteBranch',
             // Deleted Branch Management
-            'opengitea.restoreDeletedBranch',
-            'opengitea.restoreBranchFromReflog',
-            'opengitea.restoreBranchFromTree',
-            'opengitea.showDeletedBranchDetails',
-            'opengitea.removeFromHistory',
-            'opengitea.clearDeletionHistory',
-            'opengitea.exportDeletionHistory',
-            'opengitea.importDeletionHistory',
-            'opengitea.refreshDeletedBranches',
+            'limeclient.restoreDeletedBranch',
+            'limeclient.restoreBranchFromReflog',
+            'limeclient.restoreBranchFromTree',
+            'limeclient.showDeletedBranchDetails',
+            'limeclient.removeFromHistory',
+            'limeclient.clearDeletionHistory',
+            'limeclient.exportDeletionHistory',
+            'limeclient.importDeletionHistory',
+            'limeclient.refreshDeletedBranches',
             // Notifications & Other
-            'opengitea.toggleNotifications',
-            'opengitea.notificationStatus',
-            'opengitea.manageStash',
+            'limeclient.toggleNotifications',
+            'limeclient.notificationStatus',
+            'limeclient.manageStash',
         ];
 
         // Activation is event-driven and may complete after the test starts, so

@@ -1,4 +1,4 @@
-## OpenGitea — Community Gitea Client for VS Code
+## LimeClient — Community Gitea Client for VS Code
 
 > **Disclaimer:** This is an unofficial, community-maintained extension. It is not affiliated with, endorsed, or sponsored by Gitea. Gitea is a trademark of its respective owners.
 
@@ -44,7 +44,7 @@ Integrate Gitea into VS Code: browse repositories, track issues and pull request
 #### Repository Management
 
 - **Repositories View**: Lists only repositories present in your workspace (detected via local Git remotes)
-- **Workspace Detection Details**: See [Workspace Repository Detection](docs/WORKSPACE_REPOS.md) for matching rules, scan depth, and fallbacks
+- **Workspace Detection Details**: See [Workspace Repository Detection](https://github.com/hollykbuck/gitea-vscode/blob/master/docs/WORKSPACE_REPOS.md) for matching rules, scan depth, and fallbacks
 - **Create Repository**: Create new repositories directly from VS Code
 - **Clone and Open**: Clone a remote repo and open it in a new window if not already present
 - **Search Repositories**: Quick search across your Gitea repositories
@@ -66,8 +66,8 @@ A separate **Actions** activity bar container with two views:
 #### Additional Features
 
 - **VS Code Profile Sync**: Back up and restore your VS Code settings, keybindings, and extension list using any Gitea repository
-  - `OpenGitea: Sync VS Code Profile to Gitea` — uploads `settings.json`, `keybindings.json`, and installed extensions to a Gitea repo (creates `<you>/vscode-profile` automatically if needed)
-  - `OpenGitea: Restore VS Code Profile from Gitea` — downloads and applies profile files; offers to install any missing extensions
+  - `LimeClient: Sync VS Code Profile to Gitea` — uploads `settings.json`, `keybindings.json`, and installed extensions to a Gitea repo (creates `<you>/vscode-profile` automatically if needed)
+  - `LimeClient: Restore VS Code Profile from Gitea` — downloads and applies profile files; offers to install any missing extensions
 - **Profile Management**: Configure and switch between multiple Gitea instances/accounts with profile management commands
 - **Stash Management**: Manage git stashes with support for creating, applying, popping, dropping, and viewing stashes
 - **Markdown Rendering**: PR and Issue descriptions and comments render with full markdown formatting, including images fetched securely via the authenticated API
@@ -76,11 +76,11 @@ A separate **Actions** activity bar container with two views:
 ### Getting Started
 
 1. Open VS Code in a folder containing one or more Git repositories.
-2. Configure your Gitea instance via the command palette — run `OpenGitea: Configure Instance` and choose one of:
+2. Configure your Gitea instance via the command palette — run `LimeClient: Configure Instance` and choose one of:
    - **Personal Access Token**: provide your instance URL, a token, and a profile name.
    - **OAuth (browser)**: sign in through your Gitea server (see [OAuth sign-in](#oauth-sign-in)).
    - **Git Credential (git)**: store the token with `git credential` (see [Git Credential sign-in](#git-credential-sign-in)).
-3. Open the OpenGitea Activity Bar icons to explore Repositories, Issues, and Pull Requests (main container) and Gitea Actions CI/CD (Actions container).
+3. Open the LimeClient Activity Bar icons to explore Repositories, Issues, and Pull Requests (main container) and Gitea Actions CI/CD (Actions container).
 
 ### OAuth Sign-in
 
@@ -89,11 +89,11 @@ OAuth uses the standard Authorization Code + PKCE flow and stores tokens in VS C
 To enable it:
 
 1. On your Gitea server, go to **Settings → Applications → OAuth2 Applications** and create an application.
-2. Set its **Redirect URI** to `http://127.0.0.1:53123/callback` (or change `opengitea.oauthRedirectPort` and use `http://127.0.0.1:<port>/callback`).
-3. Copy the application's **Client ID** and set it in the `opengitea.oauthClientId` setting. A client secret is optional (PKCE is used).
-4. Run `OpenGitea: Sign in with OAuth (Browser)` (or choose OAuth in `OpenGitea: Configure Instance` / `OpenGitea: Add Profile`), enter your instance URL, and complete the login in the browser that opens.
+2. Set its **Redirect URI** to `http://127.0.0.1:53123/callback` (or change `limeclient.oauthRedirectPort` and use `http://127.0.0.1:<port>/callback`).
+3. Copy the application's **Client ID** and set it in the `limeclient.oauthClientId` setting. A client secret is optional (PKCE is used).
+4. Run `LimeClient: Sign in with OAuth (Browser)` (or choose OAuth in `LimeClient: Configure Instance` / `LimeClient: Add Profile`), enter your instance URL, and complete the login in the browser that opens.
 
-OAuth profiles show up like any other profile in `OpenGitea: Switch Profile`; their tokens are refreshed automatically when supported by the server, and signing out (removing the profile) also revokes the stored session.
+OAuth profiles show up like any other profile in `LimeClient: Switch Profile`; their tokens are refreshed automatically when supported by the server, and signing out (removing the profile) also revokes the stored session.
 
 ### Git Credential Sign-in
 
@@ -101,7 +101,7 @@ Instead of storing the token in VS Code settings, the token can be stored in the
 
 To enable it:
 
-1. Run `OpenGitea: Sign in with Git Credential` (or choose *Git Credential (git)* in `OpenGitea: Configure Instance` / `OpenGitea: Add Profile`).
+1. Run `LimeClient: Sign in with Git Credential` (or choose *Git Credential (git)* in `LimeClient: Configure Instance` / `LimeClient: Add Profile`).
 2. Enter your Gitea instance URL. If a credential is already stored for that host, you can reuse it.
 3. Otherwise enter your Gitea **username** and **access token**; they are stored via `git credential approve`.
 
@@ -124,54 +124,54 @@ The profile only records the instance URL and auth type — the token stays in t
 
 ### Commands
 
-- OpenGitea: Configure Instance (`opengitea.configure`): set instance URL and token, sign in with OAuth, or use git credential.
-- OpenGitea: Sign in with OAuth (`opengitea.signInWithOAuth`): browser-based OAuth2 sign-in.
-- OpenGitea: Sign in with Git Credential (`opengitea.signInWithGitCredential`): store the token via `git credential`.
-- Refresh Actions (`opengitea.actions.refresh`)
-- Open Run in Browser (`opengitea.actions.openRunInBrowser`)
-- Rerun Workflow Run (`opengitea.actions.rerunRun`)
-- Rerun Failed Jobs (`opengitea.actions.rerunFailedJobs`)
-- View Job Logs (`opengitea.actions.viewJobLogs`)
-- View Run Logs (`opengitea.actions.viewRunLogs`): aggregated logs for all jobs in a run
-- Download Artifacts (`opengitea.actions.downloadArtifacts`)
-- Add/Update/Delete Secret (`opengitea.actions.addSecret` / `opengitea.actions.updateSecret` / `opengitea.actions.deleteSecret`)
-- Add/Update/Delete Variable (`opengitea.actions.addVariable` / `opengitea.actions.updateVariable` / `opengitea.actions.deleteVariable`)
-- OpenGitea: Search Repositories (`opengitea.searchRepositories`)
-- OpenGitea: Search Issues (`opengitea.searchIssues`)
-- OpenGitea: Search Pull Requests (`opengitea.searchPullRequests`)
-- Refresh Repositories (`opengitea.refreshRepositories`): refresh current view data.
-- OpenGitea: Toggle Notifications (`opengitea.toggleNotifications`)
-- OpenGitea: Check Notification Status (`opengitea.notificationStatus`)
-- OpenGitea: Create Repository (`opengitea.createRepository`)
-- OpenGitea: Create Issue (`opengitea.createIssue`)
-- OpenGitea: Create Pull Request (`opengitea.createPullRequest`)
-- Open Repository in VS Code (`opengitea.openRepository`)
-- Open in Browser (`opengitea.openInBrowser`)
-- Open Issue in Browser (`opengitea.openIssueInBrowser`)
-- Open Pull Request in Browser (`opengitea.openPullRequestInBrowser`)
-- View Issue Details (`opengitea.viewIssueDetails`): open rich detail panel with comments and actions.
-- View Pull Request Details (`opengitea.viewPullRequestDetails`): open rich detail panel with reviews, comments, and merge actions.
-- OpenGitea: Add Profile (`opengitea.addProfile`)
-- OpenGitea: Switch Profile (`opengitea.switchProfile`)
-- OpenGitea: Remove Profile (`opengitea.removeProfile`)
-- OpenGitea: Sync VS Code Profile to Gitea (`opengitea.syncProfileToGitea`): upload settings, keybindings, and extensions to a Gitea repository.
-- OpenGitea: Restore VS Code Profile from Gitea (`opengitea.restoreProfileFromGitea`): download and apply a previously synced VS Code profile.
+- LimeClient: Configure Instance (`limeclient.configure`): set instance URL and token, sign in with OAuth, or use git credential.
+- LimeClient: Sign in with OAuth (`limeclient.signInWithOAuth`): browser-based OAuth2 sign-in.
+- LimeClient: Sign in with Git Credential (`limeclient.signInWithGitCredential`): store the token via `git credential`.
+- Refresh Actions (`limeclient.actions.refresh`)
+- Open Run in Browser (`limeclient.actions.openRunInBrowser`)
+- Rerun Workflow Run (`limeclient.actions.rerunRun`)
+- Rerun Failed Jobs (`limeclient.actions.rerunFailedJobs`)
+- View Job Logs (`limeclient.actions.viewJobLogs`)
+- View Run Logs (`limeclient.actions.viewRunLogs`): aggregated logs for all jobs in a run
+- Download Artifacts (`limeclient.actions.downloadArtifacts`)
+- Add/Update/Delete Secret (`limeclient.actions.addSecret` / `limeclient.actions.updateSecret` / `limeclient.actions.deleteSecret`)
+- Add/Update/Delete Variable (`limeclient.actions.addVariable` / `limeclient.actions.updateVariable` / `limeclient.actions.deleteVariable`)
+- LimeClient: Search Repositories (`limeclient.searchRepositories`)
+- LimeClient: Search Issues (`limeclient.searchIssues`)
+- LimeClient: Search Pull Requests (`limeclient.searchPullRequests`)
+- Refresh Repositories (`limeclient.refreshRepositories`): refresh current view data.
+- LimeClient: Toggle Notifications (`limeclient.toggleNotifications`)
+- LimeClient: Check Notification Status (`limeclient.notificationStatus`)
+- LimeClient: Create Repository (`limeclient.createRepository`)
+- LimeClient: Create Issue (`limeclient.createIssue`)
+- LimeClient: Create Pull Request (`limeclient.createPullRequest`)
+- Open Repository in VS Code (`limeclient.openRepository`)
+- Open in Browser (`limeclient.openInBrowser`)
+- Open Issue in Browser (`limeclient.openIssueInBrowser`)
+- Open Pull Request in Browser (`limeclient.openPullRequestInBrowser`)
+- View Issue Details (`limeclient.viewIssueDetails`): open rich detail panel with comments and actions.
+- View Pull Request Details (`limeclient.viewPullRequestDetails`): open rich detail panel with reviews, comments, and merge actions.
+- LimeClient: Add Profile (`limeclient.addProfile`)
+- LimeClient: Switch Profile (`limeclient.switchProfile`)
+- LimeClient: Remove Profile (`limeclient.removeProfile`)
+- LimeClient: Sync VS Code Profile to Gitea (`limeclient.syncProfileToGitea`): upload settings, keybindings, and extensions to a Gitea repository.
+- LimeClient: Restore VS Code Profile from Gitea (`limeclient.restoreProfileFromGitea`): download and apply a previously synced VS Code profile.
 
 ### Settings
 
-- `opengitea.instanceUrl`: Your Gitea instance URL (e.g., `https://gitea.example.com`).
-- `opengitea.authToken`: Personal Access Token for Gitea API authentication.
-- `opengitea.oauthClientId`: Client ID of the OAuth2 application registered on your Gitea server.
-- `opengitea.oauthClientSecret`: Optional client secret (not required when using PKCE).
-- `opengitea.oauthRedirectPort`: Local port used for the OAuth callback (must match the registered redirect URI; default `53123`).
-- `opengitea.oauthScopes`: Space-separated OAuth2 scopes requested from Gitea.
-- `opengitea.enableNotifications`: Enable notifications for repository activities.
-- `opengitea.notificationPollInterval`: Poll interval for notifications in ms (minimum 30000).
-- `opengitea.defaultRepoStartingPath`: Default local path for cloning new repositories.
-- `opengitea.showAllReposWhenNoWorkspace`: Show all repositories when none are detected in the current workspace.
-- `opengitea.repoScanDepth`: Maximum folder depth to scan for git repositories in the workspace.
-- `opengitea.profiles`: Configure multiple Gitea profiles with instance URL, token (or OAuth), and alias.
-- `opengitea.activeProfile`: Set the active profile by its alias/name.
+- `limeclient.instanceUrl`: Your Gitea instance URL (e.g., `https://gitea.example.com`).
+- `limeclient.authToken`: Personal Access Token for Gitea API authentication.
+- `limeclient.oauthClientId`: Client ID of the OAuth2 application registered on your Gitea server.
+- `limeclient.oauthClientSecret`: Optional client secret (not required when using PKCE).
+- `limeclient.oauthRedirectPort`: Local port used for the OAuth callback (must match the registered redirect URI; default `53123`).
+- `limeclient.oauthScopes`: Space-separated OAuth2 scopes requested from Gitea.
+- `limeclient.enableNotifications`: Enable notifications for repository activities.
+- `limeclient.notificationPollInterval`: Poll interval for notifications in ms (minimum 30000).
+- `limeclient.defaultRepoStartingPath`: Default local path for cloning new repositories.
+- `limeclient.showAllReposWhenNoWorkspace`: Show all repositories when none are detected in the current workspace.
+- `limeclient.repoScanDepth`: Maximum folder depth to scan for git repositories in the workspace.
+- `limeclient.profiles`: Configure multiple Gitea profiles with instance URL, token (or OAuth), and alias.
+- `limeclient.activeProfile`: Set the active profile by its alias/name.
 
 ### Performance behavior
 
@@ -179,7 +179,8 @@ The profile only records the instance URL and auth type — the token stays in t
 - GET requests that return arrays are automatically paginated when the Gitea API provides an `X-Total-Count` response header; the extension will request `?page=1..n` and merge results before returning.
 - For endpoints that support `limit`, include it in the request URL to reduce the number of paginated requests (for example: `...?limit=100`).
 - Refresh commands are throttled to prevent rapid bursts of network requests.
-- Notification polling initializes lazily and starts after a short delay to keep extension activation snappy.
+- The extension activates on demand: opening a LimeClient view, running a command, or an authentication request activates it. It does not run at VS Code startup, so it adds no startup cost.
+- Notification polling starts after the first activation (when `limeclient.enableNotifications` is enabled), not at VS Code startup.
 
 ### Requirements
 

@@ -1,6 +1,6 @@
 {
-    "name": "opengitea",
-    "displayName": "OpenGitea",
+    "name": "limeclient",
+    "displayName": "LimeClient",
     "description": "Community Gitea client for VS Code (unofficial, not affiliated with Gitea)",
     "version": "0.2.2",
     "publisher": "hollykbuck",
@@ -15,313 +15,319 @@
         "SCM Providers"
     ],
     "activationEvents": [
-        "onStartupFinished"
+        "onView:limeclient.repositories",
+        "onView:limeclient.issues",
+        "onView:limeclient.pullRequests",
+        "onView:limeclient.deletedBranches",
+        "onView:limeclient.actions",
+        "onView:limeclient.actionsSettings",
+        "onAuthenticationRequest:limeclient"
     ],
     "main": "./dist/extension.js",
-    "icon": "media/opengitea-logo.png",
+    "icon": "media/limeclient-logo.png",
     "contributes": {
         "commands": [
             {
-                "command": "opengitea.configure",
-                "title": "OpenGitea: Configure Instance",
+                "command": "limeclient.configure",
+                "title": "LimeClient: Configure Instance",
                 "icon": "$(gear)"
             },
             {
-                "command": "opengitea.signInWithOAuth",
-                "title": "OpenGitea: Sign in with OAuth (Browser)",
+                "command": "limeclient.signInWithOAuth",
+                "title": "LimeClient: Sign in with OAuth (Browser)",
                 "icon": "$(account)"
             },
             {
-                "command": "opengitea.signInWithGitCredential",
-                "title": "OpenGitea: Sign in with Git Credential",
+                "command": "limeclient.signInWithGitCredential",
+                "title": "LimeClient: Sign in with Git Credential",
                 "icon": "$(key)"
             },
             {
-                "command": "opengitea.actions.refresh",
+                "command": "limeclient.actions.refresh",
                 "title": "Refresh Actions",
                 "icon": "$(refresh)"
             },
             {
-                "command": "opengitea.actions.openRunInBrowser",
+                "command": "limeclient.actions.openRunInBrowser",
                 "title": "Open Run in Browser",
                 "icon": "$(globe)"
             },
             {
-                "command": "opengitea.actions.rerunRun",
+                "command": "limeclient.actions.rerunRun",
                 "title": "Rerun Workflow Run",
                 "icon": "$(run-all)"
             },
             {
-                "command": "opengitea.actions.rerunFailedJobs",
+                "command": "limeclient.actions.rerunFailedJobs",
                 "title": "Rerun Failed Jobs",
                 "icon": "$(debug-restart)"
             },
             {
-                "command": "opengitea.actions.viewJobLogs",
+                "command": "limeclient.actions.viewJobLogs",
                 "title": "View Job Logs",
                 "icon": "$(output)"
             },
             {
-                "command": "opengitea.actions.viewRunLogs",
+                "command": "limeclient.actions.viewRunLogs",
                 "title": "View Run Logs",
                 "icon": "$(output)"
             },
             {
-                "command": "opengitea.actions.downloadArtifacts",
+                "command": "limeclient.actions.downloadArtifacts",
                 "title": "Download Artifacts",
                 "icon": "$(download)"
             },
             {
-                "command": "opengitea.actions.addSecret",
+                "command": "limeclient.actions.addSecret",
                 "title": "Add Secret",
                 "icon": "$(key)"
             },
             {
-                "command": "opengitea.actions.deleteSecret",
+                "command": "limeclient.actions.deleteSecret",
                 "title": "Delete Secret",
                 "icon": "$(trash)"
             },
             {
-                "command": "opengitea.actions.updateSecret",
+                "command": "limeclient.actions.updateSecret",
                 "title": "Update Secret",
                 "icon": "$(edit)"
             },
             {
-                "command": "opengitea.actions.addVariable",
+                "command": "limeclient.actions.addVariable",
                 "title": "Add Variable",
                 "icon": "$(add)"
             },
             {
-                "command": "opengitea.actions.updateVariable",
+                "command": "limeclient.actions.updateVariable",
                 "title": "Update Variable",
                 "icon": "$(edit)"
             },
             {
-                "command": "opengitea.actions.deleteVariable",
+                "command": "limeclient.actions.deleteVariable",
                 "title": "Delete Variable",
                 "icon": "$(trash)"
             },
             {
-                "command": "opengitea.searchRepositories",
-                "title": "OpenGitea: Search Repositories",
+                "command": "limeclient.searchRepositories",
+                "title": "LimeClient: Search Repositories",
                 "icon": "$(search)"
             },
             {
-                "command": "opengitea.searchIssues",
-                "title": "OpenGitea: Search Issues",
+                "command": "limeclient.searchIssues",
+                "title": "LimeClient: Search Issues",
                 "icon": "$(search)"
             },
             {
-                "command": "opengitea.searchPullRequests",
-                "title": "OpenGitea: Search Pull Requests",
+                "command": "limeclient.searchPullRequests",
+                "title": "LimeClient: Search Pull Requests",
                 "icon": "$(search)"
             },
             {
-                "command": "opengitea.refreshRepositories",
+                "command": "limeclient.refreshRepositories",
                 "title": "Refresh Repositories",
                 "icon": "$(refresh)"
             },
             {
-                "command": "opengitea.toggleNotifications",
-                "title": "OpenGitea: Toggle Notifications",
+                "command": "limeclient.toggleNotifications",
+                "title": "LimeClient: Toggle Notifications",
                 "icon": "$(bell)"
             },
             {
-                "command": "opengitea.notificationStatus",
-                "title": "OpenGitea: Check Notification Status",
+                "command": "limeclient.notificationStatus",
+                "title": "LimeClient: Check Notification Status",
                 "icon": "$(info)"
             },
             {
-                "command": "opengitea.createRepository",
-                "title": "OpenGitea: Create Repository",
+                "command": "limeclient.createRepository",
+                "title": "LimeClient: Create Repository",
                 "icon": "$(new-folder)"
             },
             {
-                "command": "opengitea.createIssue",
-                "title": "OpenGitea: Create Issue",
+                "command": "limeclient.createIssue",
+                "title": "LimeClient: Create Issue",
                 "icon": "$(new-file)"
             },
             {
-                "command": "opengitea.createPullRequest",
-                "title": "OpenGitea: Create Pull Request",
+                "command": "limeclient.createPullRequest",
+                "title": "LimeClient: Create Pull Request",
                 "icon": "$(git-pull-request-create)"
             },
             {
-                "command": "opengitea.openRepository",
+                "command": "limeclient.openRepository",
                 "title": "Open Repository in VS Code",
                 "icon": "$(folder-opened)"
             },
             {
-                "command": "opengitea.openInBrowser",
+                "command": "limeclient.openInBrowser",
                 "title": "Open in Browser",
                 "icon": "$(globe)"
             },
             {
-                "command": "opengitea.openIssueInBrowser",
+                "command": "limeclient.openIssueInBrowser",
                 "title": "Open Issue in Browser",
                 "icon": "$(globe)"
             },
             {
-                "command": "opengitea.openPullRequestInBrowser",
+                "command": "limeclient.openPullRequestInBrowser",
                 "title": "Open Pull Request in Browser",
                 "icon": "$(globe)"
             },
             {
-                "command": "opengitea.viewIssueDetails",
+                "command": "limeclient.viewIssueDetails",
                 "title": "View Issue Details",
                 "icon": "$(eye)"
             },
             {
-                "command": "opengitea.viewPullRequestDetails",
+                "command": "limeclient.viewPullRequestDetails",
                 "title": "View Pull Request Details",
                 "icon": "$(eye)"
             },
             {
-                "command": "opengitea.switchBranch",
-                "title": "OpenGitea: Switch Branch",
+                "command": "limeclient.switchBranch",
+                "title": "LimeClient: Switch Branch",
                 "icon": "$(git-branch)"
             },
             {
-                "command": "opengitea.createBranchFromIssue",
-                "title": "OpenGitea: Create Branch from Issue",
+                "command": "limeclient.createBranchFromIssue",
+                "title": "LimeClient: Create Branch from Issue",
                 "icon": "$(git-branch)"
             },
             {
-                "command": "opengitea.createBranchFromPR",
-                "title": "OpenGitea: Create Branch from Pull Request",
+                "command": "limeclient.createBranchFromPR",
+                "title": "LimeClient: Create Branch from Pull Request",
                 "icon": "$(git-branch)"
             },
             {
-                "command": "opengitea.deleteBranch",
-                "title": "OpenGitea: Delete Branch",
+                "command": "limeclient.deleteBranch",
+                "title": "LimeClient: Delete Branch",
                 "icon": "$(trash)"
             },
             {
-                "command": "opengitea.restoreDeletedBranch",
-                "title": "OpenGitea: Restore Deleted Branch",
+                "command": "limeclient.restoreDeletedBranch",
+                "title": "LimeClient: Restore Deleted Branch",
                 "icon": "$(discard)"
             },
             {
-                "command": "opengitea.restoreBranchFromReflog",
-                "title": "OpenGitea: Restore Branch from Reflog",
+                "command": "limeclient.restoreBranchFromReflog",
+                "title": "LimeClient: Restore Branch from Reflog",
                 "icon": "$(history)"
             },
             {
-                "command": "opengitea.showDeletedBranchDetails",
+                "command": "limeclient.showDeletedBranchDetails",
                 "title": "Show Deleted Branch Details",
                 "icon": "$(info)"
             },
             {
-                "command": "opengitea.restoreBranchFromTree",
+                "command": "limeclient.restoreBranchFromTree",
                 "title": "Restore Branch",
                 "icon": "$(discard)"
             },
             {
-                "command": "opengitea.removeFromHistory",
+                "command": "limeclient.removeFromHistory",
                 "title": "Remove from History",
                 "icon": "$(trash)"
             },
             {
-                "command": "opengitea.clearDeletionHistory",
+                "command": "limeclient.clearDeletionHistory",
                 "title": "Clear All Deletion History",
                 "icon": "$(clear-all)"
             },
             {
-                "command": "opengitea.exportDeletionHistory",
-                "title": "OpenGitea: Export Deletion History",
+                "command": "limeclient.exportDeletionHistory",
+                "title": "LimeClient: Export Deletion History",
                 "icon": "$(export)"
             },
             {
-                "command": "opengitea.importDeletionHistory",
-                "title": "OpenGitea: Import Deletion History",
+                "command": "limeclient.importDeletionHistory",
+                "title": "LimeClient: Import Deletion History",
                 "icon": "$(import)"
             },
             {
-                "command": "opengitea.refreshDeletedBranches",
+                "command": "limeclient.refreshDeletedBranches",
                 "title": "Refresh Deleted Branches",
                 "icon": "$(refresh)"
             },
             {
-                "command": "opengitea.addProfile",
-                "title": "OpenGitea: Add Profile",
+                "command": "limeclient.addProfile",
+                "title": "LimeClient: Add Profile",
                 "icon": "$(add)"
             },
             {
-                "command": "opengitea.manageStash",
-                "title": "OpenGitea: Manage Stashes",
+                "command": "limeclient.manageStash",
+                "title": "LimeClient: Manage Stashes",
                 "icon": "$(archive)"
             },
             {
-                "command": "opengitea.switchProfile",
-                "title": "OpenGitea: Switch Profile",
+                "command": "limeclient.switchProfile",
+                "title": "LimeClient: Switch Profile",
                 "icon": "$(account)"
             },
             {
-                "command": "opengitea.removeProfile",
-                "title": "OpenGitea: Remove Profile",
+                "command": "limeclient.removeProfile",
+                "title": "LimeClient: Remove Profile",
                 "icon": "$(trash)"
             },
             {
-                "command": "opengitea.showVersionInfo",
-                "title": "OpenGitea: Show Version Info",
+                "command": "limeclient.showVersionInfo",
+                "title": "LimeClient: Show Version Info",
                 "icon": "$(versions)"
             },
             {
-                "command": "opengitea.syncProfileToGitea",
-                "title": "OpenGitea: Sync VS Code Profile to Gitea",
+                "command": "limeclient.syncProfileToGitea",
+                "title": "LimeClient: Sync VS Code Profile to Gitea",
                 "icon": "$(cloud-upload)"
             },
             {
-                "command": "opengitea.restoreProfileFromGitea",
-                "title": "OpenGitea: Restore VS Code Profile from Gitea",
+                "command": "limeclient.restoreProfileFromGitea",
+                "title": "LimeClient: Restore VS Code Profile from Gitea",
                 "icon": "$(cloud-download)"
             }
         ],
         "viewsContainers": {
             "activitybar": [
                 {
-                    "id": "opengitea-explorer",
-                    "title": "OpenGitea",
-                    "icon": "media/opengitea-activity.svg"
+                    "id": "limeclient-explorer",
+                    "title": "LimeClient",
+                    "icon": "media/limeclient-activity.svg"
                 },
                 {
-                    "id": "opengitea-actions",
-                    "title": "OpenGitea Actions",
-                    "icon": "media/opengitea-actions.svg"
+                    "id": "limeclient-actions",
+                    "title": "LimeClient Actions",
+                    "icon": "media/limeclient-actions.svg"
                 }
             ]
         },
         "views": {
-            "opengitea-explorer": [
+            "limeclient-explorer": [
                 {
-                    "id": "opengitea.repositories",
+                    "id": "limeclient.repositories",
                     "name": "Repositories",
                     "icon": "$(git-branch)"
                 },
                 {
-                    "id": "opengitea.issues",
+                    "id": "limeclient.issues",
                     "name": "Issues",
                     "icon": "$(issue-opened)"
                 },
                 {
-                    "id": "opengitea.pullRequests",
+                    "id": "limeclient.pullRequests",
                     "name": "Pull Requests",
                     "icon": "$(git-pull-request)"
                 },
                 {
-                    "id": "opengitea.deletedBranches",
+                    "id": "limeclient.deletedBranches",
                     "name": "Deleted Branches",
                     "icon": "$(trash)"
                 }
             ],
-            "opengitea-actions": [
+            "limeclient-actions": [
                 {
-                    "id": "opengitea.actions",
+                    "id": "limeclient.actions",
                     "name": "Workflow Runs",
                     "icon": "$(play)"
                 },
                 {
-                    "id": "opengitea.actionsSettings",
+                    "id": "limeclient.actionsSettings",
                     "name": "Settings",
                     "icon": "$(gear)"
                 }
@@ -330,236 +336,236 @@
         "menus": {
             "view/title": [
                 {
-                    "command": "opengitea.refreshRepositories",
-                    "when": "view == opengitea.repositories || view == opengitea.issues || view == opengitea.pullRequests",
+                    "command": "limeclient.refreshRepositories",
+                    "when": "view == limeclient.repositories || view == limeclient.issues || view == limeclient.pullRequests",
                     "group": "navigation"
                 },
                 {
-                    "command": "opengitea.searchRepositories",
-                    "when": "view == opengitea.repositories",
+                    "command": "limeclient.searchRepositories",
+                    "when": "view == limeclient.repositories",
                     "group": "navigation"
                 },
                 {
-                    "command": "opengitea.searchIssues",
-                    "when": "view == opengitea.issues",
+                    "command": "limeclient.searchIssues",
+                    "when": "view == limeclient.issues",
                     "group": "navigation"
                 },
                 {
-                    "command": "opengitea.searchPullRequests",
-                    "when": "view == opengitea.pullRequests",
+                    "command": "limeclient.searchPullRequests",
+                    "when": "view == limeclient.pullRequests",
                     "group": "navigation"
                 },
                 {
-                    "command": "opengitea.createRepository",
-                    "when": "view == opengitea.repositories",
+                    "command": "limeclient.createRepository",
+                    "when": "view == limeclient.repositories",
                     "group": "navigation@2"
                 },
                 {
-                    "command": "opengitea.createIssue",
-                    "when": "view == opengitea.issues",
+                    "command": "limeclient.createIssue",
+                    "when": "view == limeclient.issues",
                     "group": "navigation@2"
                 },
                 {
-                    "command": "opengitea.createPullRequest",
-                    "when": "view == opengitea.pullRequests",
+                    "command": "limeclient.createPullRequest",
+                    "when": "view == limeclient.pullRequests",
                     "group": "navigation@2"
                 },
                 {
-                    "command": "opengitea.refreshDeletedBranches",
-                    "when": "view == opengitea.deletedBranches",
+                    "command": "limeclient.refreshDeletedBranches",
+                    "when": "view == limeclient.deletedBranches",
                     "group": "navigation"
                 },
                 {
-                    "command": "opengitea.restoreBranchFromReflog",
-                    "when": "view == opengitea.deletedBranches",
+                    "command": "limeclient.restoreBranchFromReflog",
+                    "when": "view == limeclient.deletedBranches",
                     "group": "navigation@2"
                 },
                 {
-                    "command": "opengitea.clearDeletionHistory",
-                    "when": "view == opengitea.deletedBranches",
+                    "command": "limeclient.clearDeletionHistory",
+                    "when": "view == limeclient.deletedBranches",
                     "group": "navigation@3"
                 },
                 {
-                    "command": "opengitea.exportDeletionHistory",
-                    "when": "view == opengitea.deletedBranches",
+                    "command": "limeclient.exportDeletionHistory",
+                    "when": "view == limeclient.deletedBranches",
                     "group": "1_export"
                 },
                 {
-                    "command": "opengitea.importDeletionHistory",
-                    "when": "view == opengitea.deletedBranches",
+                    "command": "limeclient.importDeletionHistory",
+                    "when": "view == limeclient.deletedBranches",
                     "group": "1_export"
                 },
                 {
-                    "command": "opengitea.actions.refresh",
-                    "when": "view == opengitea.actions || view == opengitea.actionsSettings",
+                    "command": "limeclient.actions.refresh",
+                    "when": "view == limeclient.actions || view == limeclient.actionsSettings",
                     "group": "navigation"
                 }
             ],
             "view/item/context": [
                 {
-                    "command": "opengitea.actions.openRunInBrowser",
-                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "command": "limeclient.actions.openRunInBrowser",
+                    "when": "view == limeclient.actions && viewItem == actionRun",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.actions.rerunRun",
-                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "command": "limeclient.actions.rerunRun",
+                    "when": "view == limeclient.actions && viewItem == actionRun",
                     "group": "1_actions"
                 },
                 {
-                    "command": "opengitea.actions.rerunFailedJobs",
-                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "command": "limeclient.actions.rerunFailedJobs",
+                    "when": "view == limeclient.actions && viewItem == actionRun",
                     "group": "1_actions"
                 },
                 {
-                    "command": "opengitea.actions.downloadArtifacts",
-                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "command": "limeclient.actions.downloadArtifacts",
+                    "when": "view == limeclient.actions && viewItem == actionRun",
                     "group": "1_actions"
                 },
                 {
-                    "command": "opengitea.actions.viewJobLogs",
-                    "when": "view == opengitea.actions && viewItem == actionJob",
+                    "command": "limeclient.actions.viewJobLogs",
+                    "when": "view == limeclient.actions && viewItem == actionJob",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.actions.viewRunLogs",
-                    "when": "view == opengitea.actions && viewItem == actionRun",
+                    "command": "limeclient.actions.viewRunLogs",
+                    "when": "view == limeclient.actions && viewItem == actionRun",
                     "group": "1_logs"
                 },
                 {
-                    "command": "opengitea.actions.addSecret",
-                    "when": "view == opengitea.actionsSettings && viewItem == actionsSettingsRepo",
+                    "command": "limeclient.actions.addSecret",
+                    "when": "view == limeclient.actionsSettings && viewItem == actionsSettingsRepo",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.actions.addVariable",
-                    "when": "view == opengitea.actionsSettings && viewItem == actionsSettingsRepo",
+                    "command": "limeclient.actions.addVariable",
+                    "when": "view == limeclient.actionsSettings && viewItem == actionsSettingsRepo",
                     "group": "1_actions"
                 },
                 {
-                    "command": "opengitea.actions.addSecret",
-                    "when": "view == opengitea.actionsSettings && viewItem == actionSettingsGroupSecrets",
+                    "command": "limeclient.actions.addSecret",
+                    "when": "view == limeclient.actionsSettings && viewItem == actionSettingsGroupSecrets",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.actions.addVariable",
-                    "when": "view == opengitea.actionsSettings && viewItem == actionSettingsGroupVariables",
+                    "command": "limeclient.actions.addVariable",
+                    "when": "view == limeclient.actionsSettings && viewItem == actionSettingsGroupVariables",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.actions.deleteSecret",
-                    "when": "view == opengitea.actionsSettings && viewItem == actionSecret",
+                    "command": "limeclient.actions.deleteSecret",
+                    "when": "view == limeclient.actionsSettings && viewItem == actionSecret",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.actions.updateSecret",
-                    "when": "view == opengitea.actionsSettings && viewItem == actionSecret",
+                    "command": "limeclient.actions.updateSecret",
+                    "when": "view == limeclient.actionsSettings && viewItem == actionSecret",
                     "group": "1_actions"
                 },
                 {
-                    "command": "opengitea.actions.updateVariable",
-                    "when": "view == opengitea.actionsSettings && viewItem == actionVariable",
+                    "command": "limeclient.actions.updateVariable",
+                    "when": "view == limeclient.actionsSettings && viewItem == actionVariable",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.actions.deleteVariable",
-                    "when": "view == opengitea.actionsSettings && viewItem == actionVariable",
+                    "command": "limeclient.actions.deleteVariable",
+                    "when": "view == limeclient.actionsSettings && viewItem == actionVariable",
                     "group": "1_actions"
                 },
                 {
-                    "command": "opengitea.openRepository",
-                    "when": "view == opengitea.repositories && viewItem == repository",
+                    "command": "limeclient.openRepository",
+                    "when": "view == limeclient.repositories && viewItem == repository",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.openInBrowser",
-                    "when": "view == opengitea.repositories && viewItem == repository",
+                    "command": "limeclient.openInBrowser",
+                    "when": "view == limeclient.repositories && viewItem == repository",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.openIssueInBrowser",
-                    "when": "view == opengitea.issues && viewItem == issue",
+                    "command": "limeclient.openIssueInBrowser",
+                    "when": "view == limeclient.issues && viewItem == issue",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.viewIssueDetails",
-                    "when": "view == opengitea.issues && viewItem == issue",
+                    "command": "limeclient.viewIssueDetails",
+                    "when": "view == limeclient.issues && viewItem == issue",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.openPullRequestInBrowser",
-                    "when": "view == opengitea.pullRequests && viewItem == pullRequest",
+                    "command": "limeclient.openPullRequestInBrowser",
+                    "when": "view == limeclient.pullRequests && viewItem == pullRequest",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.viewPullRequestDetails",
-                    "when": "view == opengitea.pullRequests && viewItem == pullRequest",
+                    "command": "limeclient.viewPullRequestDetails",
+                    "when": "view == limeclient.pullRequests && viewItem == pullRequest",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.createBranchFromIssue",
-                    "when": "view == opengitea.issues && viewItem == issue",
+                    "command": "limeclient.createBranchFromIssue",
+                    "when": "view == limeclient.issues && viewItem == issue",
                     "group": "1_branch"
                 },
                 {
-                    "command": "opengitea.createBranchFromPR",
-                    "when": "view == opengitea.pullRequests && viewItem == pullRequest",
+                    "command": "limeclient.createBranchFromPR",
+                    "when": "view == limeclient.pullRequests && viewItem == pullRequest",
                     "group": "1_branch"
                 },
                 {
-                    "command": "opengitea.restoreBranchFromTree",
-                    "when": "view == opengitea.deletedBranches && viewItem == deletedBranch",
+                    "command": "limeclient.restoreBranchFromTree",
+                    "when": "view == limeclient.deletedBranches && viewItem == deletedBranch",
                     "group": "inline"
                 },
                 {
-                    "command": "opengitea.removeFromHistory",
-                    "when": "view == opengitea.deletedBranches && viewItem == deletedBranch",
+                    "command": "limeclient.removeFromHistory",
+                    "when": "view == limeclient.deletedBranches && viewItem == deletedBranch",
                     "group": "1_actions"
                 }
             ]
         },
         "configuration": {
-            "title": "OpenGitea",
+            "title": "LimeClient",
             "properties": {
-                "opengitea.instanceUrl": {
+                "limeclient.instanceUrl": {
                     "type": "string",
                     "default": "",
                     "description": "Your Gitea instance URL (e.g., https://gitea.example.com)"
                 },
-                "opengitea.authToken": {
+                "limeclient.authToken": {
                     "type": "string",
                     "default": "",
                     "description": "Personal Access Token for Gitea API authentication"
                 },
-                "opengitea.enableNotifications": {
+                "limeclient.enableNotifications": {
                     "type": "boolean",
                     "default": true,
                     "description": "Enable notifications for repository activities"
                 },
-                "opengitea.notificationPollInterval": {
+                "limeclient.notificationPollInterval": {
                     "type": "number",
                     "default": 60000,
                     "description": "Poll interval for notifications in milliseconds (minimum 30000 - 30 seconds)",
                     "minimum": 30000
                 },
-                "opengitea.defaultRepoStartingPath": {
+                "limeclient.defaultRepoStartingPath": {
                     "type": "string",
                     "default": "",
                     "description": "Default starting path for repository operations"
                 },
-                "opengitea.showAllReposWhenNoWorkspace": {
+                "limeclient.showAllReposWhenNoWorkspace": {
                     "type": "boolean",
                     "default": false,
                     "description": "Show all repositories when none are detected in the current workspace"
                 },
-                "opengitea.repoScanDepth": {
+                "limeclient.repoScanDepth": {
                     "type": "number",
                     "default": 2,
                     "description": "Maximum folder depth to scan for git repositories in the workspace",
                     "minimum": 0,
                     "maximum": 6
                 },
-                "opengitea.profiles": {
+                "limeclient.profiles": {
                     "type": "object",
                     "default": {},
                     "description": "Configured Gitea profiles for multiple accounts",
@@ -589,32 +595,32 @@
                         ]
                     }
                 },
-                "opengitea.activeProfile": {
+                "limeclient.activeProfile": {
                     "type": "string",
                     "default": "default",
                     "description": "Name of the currently active Gitea profile"
                 },
-                "opengitea.oauthClientId": {
+                "limeclient.oauthClientId": {
                     "type": "string",
                     "default": "",
                     "description": "Client ID of the OAuth2 application registered on your Gitea server (Settings → Applications → OAuth2 Applications)"
                 },
-                "opengitea.oauthClientSecret": {
+                "limeclient.oauthClientSecret": {
                     "type": "string",
                     "default": "",
                     "description": "Optional client secret of your Gitea OAuth2 application. Not required when using PKCE"
                 },
-                "opengitea.oauthRedirectPort": {
+                "limeclient.oauthRedirectPort": {
                     "type": "number",
                     "default": 53123,
                     "description": "Local port used for the OAuth callback. Must match the redirect URI registered in your Gitea OAuth2 application: http://127.0.0.1:<port>/callback"
                 },
-                "opengitea.oauthScopes": {
+                "limeclient.oauthScopes": {
                     "type": "string",
                     "default": "read:user read:repository write:repository write:issue read:issue write:pull_request read:pull_request read:organization",
                     "description": "Space-separated OAuth2 scopes requested from Gitea"
                 },
-                "opengitea.branchDeletionRetentionDays": {
+                "limeclient.branchDeletionRetentionDays": {
                     "type": "number",
                     "default": 90,
                     "description": "Number of days to retain deleted branch history (default: 90 days)",
